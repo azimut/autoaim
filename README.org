@@ -9,6 +9,8 @@ Intented for use to cleanup the massdns resolvers, just ping and dig.
 cleanup resolvers version of IPs from massdns based on cleanupresolvers.sh
 
 ** TLD specific
+*** tlds.sh
+generates the report for possible tlds for said domain
 *** clean_public_suffix.dat
 version that does not contain comments, explicit wildcards and non-explicit ones
 *** cleanupwildcards.sh
