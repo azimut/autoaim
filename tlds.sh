@@ -6,10 +6,10 @@ uncomment(){ grep -v -e '^$' -e '^#' -e '^//' /dev/stdin; }
 set -e
 set -x
 
-[[ $# -ne 1 ]] && { echo "Needs 1 argument, the domain (without .com) target, like \"starbucks\""; exit 1; }
+[[ $# -eq 0 ]] && { echo "Needs 1 argument, the domain (without .com) target, like \"starbucks\""; exit 1; }
 
 DOMAIN="$1"
-CONCURRENT=500 # default is 10k too many drops methinks
+CONCURRENT=${2:-500} # default is 10k too many drops methinks
 AUTOAIM=$HOME/projects/sec/autoaim
 
 cd $HOME/projects/sec/
