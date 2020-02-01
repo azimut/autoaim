@@ -9,7 +9,7 @@ set -x
 [[ $# -ne 1 ]] && { echo "Needs 1 argument, the domain (without .com) target, like \"starbucks\""; exit 1; }
 
 DOMAIN="$1"
-CONCURRENT=1000 # default is 10k too many drops methinks
+CONCURRENT=500 # default is 10k too many drops methinks
 AUTOAIM=$HOME/projects/sec/autoaim
 
 cd $HOME/projects/sec/
@@ -39,6 +39,7 @@ LANG=en_EN join -1 1 \
     | sort -k3,3n \
     | tee ${DOMAIN}_final_a.txt \
     | cut -f1,5,9 -d' ' \
+    | sort -k2,2n \
     | column -t
 
 grep CNAME ${DOMAIN}_massdns_simple_a.txt \
