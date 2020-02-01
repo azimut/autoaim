@@ -7,3 +7,11 @@ Intented for use to cleanup the massdns resolvers, just ping and dig.
 
 ** resolvers.txt, raw_resolvers.txt
 cleanup resolvers version of IPs from massdns based on cleanupresolvers.sh
+
+** TLD specific
+*** clean_public_suffix.dat
+version that does not contain comments, explicit wildcards and non-explicit ones
+*** cleanupwildcards.sh
+generates a new clean_public_suffix_list.dat
+*** massdns_wildcard.txt
+contains only domains that have wildcard from public_suffix.dat
