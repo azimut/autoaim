@@ -15,8 +15,13 @@ doit(){
         return 1
     fi
 
-    if dig +timeout=1 google.com @"${resolverip}" &>/dev/null; then
-        echo "UP ${resolverip}"
+    if output=$(dig +short +timeout=1 PTR 8.8.8.8.in-addr.arpa @"${resolverip}"); then
+        if [[ $output == "dns.google." ]]; then
+            echo "UP ${resolverip}"
+        else
+            echo "DOWN ${resolverip} BOGUS"
+            return 1
+        fi
     else
         echo "DOWN ${resolverip} DNS"
         return 1
