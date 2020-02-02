@@ -17,6 +17,7 @@ cd $HOME/projects/sec/
 cat ${AUTOAIM}/clean_public_suffix_list.dat \
     | prefix ${DOMAIN}. > ${DOMAIN}_tlds.txt
 
+# A
 ./massdns/bin/massdns -w ${DOMAIN}_massdns_simple_a.txt \
                       -s ${CONCURRENT} \
                       -t A \
@@ -24,6 +25,9 @@ cat ${AUTOAIM}/clean_public_suffix_list.dat \
                       -r ${AUTOAIM}/resolvers.txt \
                       ${DOMAIN}_tlds.txt
 
+# NOTE: AAAA ? can happen later as I assume if it has an A it MIGHT have an AAAA
+
+# SOA
 ./massdns/bin/massdns -w ${DOMAIN}_massdns_simple_soa.txt \
                       -s ${CONCURRENT} \
                       -t SOA \
