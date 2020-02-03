@@ -10,7 +10,7 @@ FILE=${1:-$HOME/projects/sec/massdns/lists/resolvers.txt}
 
 doit(){
     local resolverip="$1"
-    local output
+    local output=""
     if ! ping -n -c1 "${resolverip}" &>/dev/null; then
         echo "DOWN ${resolverip} PING"
         return 1
@@ -24,7 +24,6 @@ doit(){
         echo "DOWN ${resolverip} DNS_PTR"
         return 1
     fi
-    unset output
     if output=$(dig +short +timeout=1 SOA google.com @"${resolverip}" | cut -f1 -d' '); then
         if [[ $output == "ns1.google.com." ]]; then
             echo "UP ${resolverip}"
