@@ -17,9 +17,9 @@ SCRIPTS=(
 
 mkdir -p data/
 
-grep Up   data/alive*.gnmap | cut -f2 -d' ' | sort -nu > data/up.txt
-grep Down data/alive*.gnmap | cut -f2 -d' ' | sort -nu > data/down.txt
-cat data/up.txt data/down.txt | sort -nu > data/processed.txt
+grep Up   data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -n > data/up.txt
+grep Down data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -n > data/down.txt
+cat data/up.txt data/down.txt | sort | uniq | sort -n > data/processed.txt
 
 sudo $NMAP -n \
      -sn \
@@ -32,6 +32,6 @@ sudo $NMAP -n \
      --randomize-hosts \
      -iL data/ips.txt
 
-grep Up   data/alive*.gnmap | cut -f2 -d' ' | sort -nu > data/up.txt
-grep Down data/alive*.gnmap | cut -f2 -d' ' | sort -nu > data/down.txt
-cat data/up.txt data/down.txt | sort -nu > data/processed.txt
+grep Up   data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -n > data/up.txt
+grep Down data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -n > data/down.txt
+cat data/up.txt data/down.txt | sort | uniq | sort -n > data/processed.txt
