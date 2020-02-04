@@ -42,7 +42,7 @@ doit(){
 cd $HOME/projects/sec/autoaim/
 
 export -f doit
-mapfile -t ips < <(cat "${FILE}" | xargs | tr ' ' $'\n' | shuf)
+mapfile -t ips < <(cat "${FILE}" | xargs | tr ' ' $'\n')
 parallel -j"${JOBS}" doit ::: "${ips[@]}" \
     | tee raw_resolvers.txt
 grep UP raw_resolvers.txt \
