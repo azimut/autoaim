@@ -10,6 +10,8 @@ UA="http.useragent='Mozilla/5.0 (Windows NT 6.1; WOW64; rv:12.0) Gecko/20100101 
 SCRIPTS=(
     asn-query
     address-info
+    dns-blacklist
+    dns-zeustracker
     fcrdns
     traceroute-geolocation
     whois-ip
@@ -21,8 +23,10 @@ grep Up   data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -n > data/up.tx
 grep Down data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -n > data/down.txt
 cat data/up.txt data/down.txt | sort | uniq | sort -n > data/processed.txt
 
+# Note: Plus -PS80 from default
 sudo $NMAP -n \
      -sn \
+     -PE -PS443 -PA80 -PP -PS80 \
      -oA data/alive${DATE} \
      --script-args="${UA}" \
      --traceroute \
