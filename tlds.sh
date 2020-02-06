@@ -11,31 +11,31 @@ set -x
 DOMAIN="$1"
 CONCURRENT=${2:-500} # default is 10k too many drops methinks
 AUTOAIM=$HOME/projects/sec/autoaim
-
-cd $HOME/projects/sec/
+MASSDNS=$HOME/projects/sec/massdns/bin/massdns
 
 cat ${AUTOAIM}/clean_public_suffix_list.dat \
     | prefix ${DOMAIN}. > ${DOMAIN}_tlds.txt
 
 # A
-./massdns/bin/massdns -w ${DOMAIN}_massdns_simple_a.txt \
-                      -s ${CONCURRENT} \
-                      -t A \
-                      -o F \
-                      -r ${AUTOAIM}/resolvers.txt \
-                      ${DOMAIN}_tlds.txt
+$MASSDNS -w ${DOMAIN}_massdns_simple_a.txt \
+         -s ${CONCURRENT} \
+         -t A \
+         -o F \
+         -r ${AUTOAIM}/resolvers.txt \
+         ${DOMAIN}_tlds.txt
 
 # NOTE: AAAA ? can happen later as I assume if it has an A it MIGHT have an AAAA
 
 # SOA
-./massdns/bin/massdns -w ${DOMAIN}_massdns_simple_soa.txt \
-                      -s ${CONCURRENT} \
-                      -t SOA \
-                      -o F \
-                      -r ${AUTOAIM}/resolvers.txt \
-                      <(grep ' IN A ' ${DOMAIN}_massdns_simple_a.txt \
-                            | grep ${DOMAIN} \
-                            | cut -f1 -d' ')
+
+$MASSDNS -w ${DOMAIN}_massdns_simple_soa.txt \
+         -s ${CONCURRENT} \
+         -t SOA \
+         -o F \
+         -r ${AUTOAIM}/resolvers.txt \
+         <(grep ' IN A ' ${DOMAIN}_massdns_simple_a.txt \
+               | grep ${DOMAIN} \
+               | cut -f1 -d' ')
 
 LANG=en_EN join -1 1 \
     <(grep ' IN A '   ${DOMAIN}_massdns_simple_a.txt   | LANG=en_EN sort) \
