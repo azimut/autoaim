@@ -43,8 +43,7 @@ cd $HOME/projects/sec/autoaim/
 
 export -f doit
 mapfile -t ips < <(cat "${FILE}" | xargs | tr ' ' $'\n')
-parallel -j"${JOBS}" doit ::: "${ips[@]}" \
-    | tee raw_resolvers.txt
+parallel -j"${JOBS}" doit ::: "${ips[@]}" | tee raw_resolvers.txt
 grep UP raw_resolvers.txt \
     | cut -f2 -d' ' \
     | sort | uniq | sort -n > resolvers.txt
