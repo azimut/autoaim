@@ -1,5 +1,9 @@
 #!/bin/sh
 
+set -x
+set -e
+set -u
+
 # TODO: Might be approach is wrong and aquatone can resume...
 #       I know it won't mind re-scanning a domain so I guess
 #       I just need to keep processed thing
@@ -9,6 +13,8 @@
 AQUATONE=$HOME/projects/sec/aquatone/aquatone
 #DATE=$(date +%s)
 FOLDER=data/aquatone #/${DATE}
+
+mkdir -p ${FOLDER}
 
 trim(){ awk '{$1=$1};1' /dev/stdin ; }
 separator(){ printf '=%.0s' {0..30}; echo; }
