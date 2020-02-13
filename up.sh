@@ -1,8 +1,6 @@
 #!/bin/bash
 
-set -e
-set -x
-set -u
+set -exuo pipefail
 
 trim(){ awk '{$1=$1};1' /dev/stdin; }
 uncomment(){
@@ -26,11 +24,13 @@ SCRIPTS=(
 )
 
 mkdir -p data/
-
-grep Up   data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -n > data/up.txt
-grep Down data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -n > data/down.txt
-cat data/up.txt data/down.txt | sort | uniq | sort -n > data/processed.txt
-
+if compgen -G 'data/alive*.gnmap'; then
+    grep Up   data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -V > data/up.txt   || true
+    grep Down data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -V > data/down.txt || true
+    cat data/up.txt data/down.txt | sort | uniq | sort -V > data/processed.txt
+else
+    touch data/processed.txt
+fi
 # Note: Plus -PS80 from default
 sudo $NMAP -n \
      -sn \
@@ -44,13 +44,23 @@ sudo $NMAP -n \
      --randomize-hosts \
      -iL data/ips.txt
 
-grep Up   data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -n > data/up.txt
-grep Down data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -n > data/down.txt
-cat data/up.txt data/down.txt | sort | uniq | sort -n > data/processed.txt
+grep Up   data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -V > data/up.txt   || true
+grep Down data/alive*.gnmap | cut -f2 -d' ' | sort | uniq | sort -V > data/down.txt || true
+cat data/up.txt data/down.txt | sort | uniq | sort -V > data/processed.txt
 
-cat data/up.txt | uncomment | trim | sunny | \
+# Add Provider
+cat data/ips.txt | uncomment | trim | sunny | \
     while IFS=, read -r ip cidr provider; do
         mkdir -p data/${ip}
         echo ${cidr}     > data/${ip}/cidr
         echo ${provider} > data/${ip}/provider
+    done
+
+# Add PTR
+cat data/ips.txt | uncomment | trim | \
+    while read -r ip; do
+        mkdir -p data/${ip}
+        if [[ ! -f data/${ip}/ptr ]]; then
+            dig +short @1.1.1.1 -x ${ip} > data/${ip}/ptr
+        fi
     done
