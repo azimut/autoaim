@@ -3,6 +3,7 @@
 set -exuo pipefail
 
 OUTPUT_FILE=bounty.conf
+BASE_SERVERS=(8.8.8.8 1.1.1.1 9.9.9.9)
 
 trim(){ awk '{$1=$1};1' /dev/stdin; }
 uncomment(){
@@ -33,21 +34,23 @@ EOF
 
 # DNS: ADD all unresolved domains
 #      Assumes some dir structure...
-find *.*/ -type d -name resolved | \
+# (scdr|admin.login).starbucks.co.jp returns NOERROR not NXDOMAIN???
+# test.istarbucks.co.kr NOERROR due one of the NS servers is missing the record
+find *.*/ -type d -name resolved |
     while read -r rdir; do
         domain=${rdir%/data*}
         domain=${domain#*/}
         cd ${rdir}
         unresolved_domains=(
             $(complement <(grepdomain ${domain}) \
-                         <(cd ..; grepdomain ${domain}))
+                         <(cd ..; grepdomain ${domain} | grep -v -e scdr.starbucks.co.jp -e admin.login.starbucks.co.jp -e test.istarbucks.co.kr; ) | sort | uniq)
         )
         cd -
         for udomain in ${unresolved_domains[@]}; do
             cat >> ${OUTPUT_FILE} <<EOF
 [[inputs.dns_query]]
-  interval = "$((30 + $RANDOM % 60))m"
-  servers     = ["8.8.8.8"]
+  interval = "$((40 + $RANDOM % 60))m"
+  servers     = ["${BASE_SERVERS[$((RANDOM % 3))]}"]
   record_type = "A"
   domains     = ["${udomain}"]
 EOF
@@ -55,18 +58,18 @@ EOF
     done
 
 # IP: Adds all down ips
-find *.*/ -type f -name down.txt -exec cat {} \; | uncomment | trim |
+find *.*/ -type f -name down.txt -exec cat {} \; | uncomment | trim | sort | uniq |
     while read -r ip; do
         cat >> ${OUTPUT_FILE} <<EOF
 [[inputs.ping]]
-  interval = "$((30 + $RANDOM % 60))m"
+  interval = "$((40 + $RANDOM % 60))m"
   urls     = ["${ip}"]
   count    = 1
   method   = "native"
 EOF
     done
 
-
+# Alerts
 cat >> ${OUTPUT_FILE} <<EOF
 # TCP
 [[outputs.exec]]
@@ -77,13 +80,13 @@ cat >> ${OUTPUT_FILE} <<EOF
 
 # DNS
 [[outputs.exec]]
-  command   = ["xargs","-n1","-I{}","notify-send","--urgency=critical","VICTIM","{}"]
+  command   = ["xargs","-n1","-I{}","notify-send","--urgency=critical","dead DNS now resolves","{}"]
   namepass  = ["dns_query"]
   fieldpass = ["query_time_ms"]
 
 # PING
 [[outputs.exec]]
-  command = ["xargs","-n1","-I{}","notify-send","--urgency=critical","VICTIM","{}"]
+  command = ["xargs","-n1","-I{}","notify-send","--urgency=critical","dead IP is back online","{}"]
   namepass = ["ping"]
   fieldpass = ["ttl"]
 
