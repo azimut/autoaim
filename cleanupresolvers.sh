@@ -1,18 +1,19 @@
 #!/bin/bash
 
-set -eu
+# Can't be nopipefail due parallel returning in the return code the number of failed jobs
+set -exu
 
 INPUT_FILE=${1}
 JOBS=${2:-20}
 OUTPUT_FILE=${3:-$INPUT_FILE}
 
-BASE_DOMAINS=(telegram.com starbucks.com.ar) # sites that return the same IP regardless the location
-BASE_DOMAIN=${BASE_DOMAINS[$((RANDOM%${#BASE_DOMAINS[@]}))]}
+BASE_DOMAINS=(telegram.com starbucks.com.ar) # sites that return the same IP regardless the location, some dns servers might even not be able to reply for a specific TLD
+BASE_DOMAIN=${4:-${BASE_DOMAINS[$((RANDOM%${#BASE_DOMAINS[@]}))]}}
 BASE_RESOLVERS=(1.1.1.1 8.8.8.8 9.9.9.9)
 BASE_RESOLVER=${BASE_RESOLVERS[$((RANDOM%${#BASE_RESOLVERS[@]}))]}
 
-STATIC_IP=$(dig +short @${BASE_RESOLVER} ${BASE_DOMAIN})
-RANDOM_DOMAIN="$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 16 | head -n1)"
+STATIC_IP="$(dig +short @${BASE_RESOLVER} ${BASE_DOMAIN})"
+RANDOM_SUB="$(openssl rand -base64 32 | tr -dc 'a-z0-9' | fold -w16 | head -n1)"
 
 TMPFILE=raw_${RANDOM}_resolvers.txt
 
@@ -26,16 +27,16 @@ usage(){
 [[ -s $INPUT_FILE ]] || { echo "Invalid INPUT_FILE"; usage; exit 1; }
 
 doit(){
-    local resolverip="$1"
-    local domain="$2"
-    local ip="$3"
-    local random_domain="$4"
+    local resolverip="${1}"
+    local domain="${2}"
+    local ip="${3}"
+    local random_sub="${4}"
     local s=""
     local a=()
     local sketchy=(facebook.com paypal.com google.com telegram.com wikileaks.com)
     # know A
-    if s=$(dig @${resolverip} +short +timeout=1 ${domain}); then
-        if [[ ${s} != ${ip} ]]; then
+    if s=$(dig @${resolverip} +short +timeout=2 ${domain}); then
+        if [[ ${s} != "${ip}" ]]; then
             echo "DOWN ${resolverip} BOGUS_A \"${s}\" ${domain} ${ip}"
             return 1
         fi
@@ -45,7 +46,7 @@ doit(){
     fi
     # SOA and PTR
     if IFS=$'\n' a=($(dig @${resolverip} +short +timeout=5 google.com SOA 8.8.8.8.in-addr.arpa PTR)); then
-        if [[ -z ${a[@]} ]]; then
+        if [[ ${#a[@]} -eq 0 ]]; then
             echo "DOWN ${resolverip} EMPTY"
             return 1
         elif [[ ${#a[@]} -ne 2 ]]; then
@@ -63,7 +64,7 @@ doit(){
         return 1
     fi
     # Make sure there isn't DNS poisoning
-    if s=$(dig @${resolverip} +short +timeout=5 ${sketchy[@]/#/${random_domain}.}); then
+    if s=$(dig @${resolverip} +short +timeout=5 "${sketchy[@]/#/${random_sub}.}"); then
         if [[ -n ${s} ]]; then
             echo "DOWN ${resolverip} BOGUS_POISON \"${s}\""
             return 1
@@ -74,11 +75,12 @@ doit(){
     fi
     echo "UP ${resolverip}"
 }
-
 export -f doit
-mapfile -t ips < <(cat "${INPUT_FILE}" | xargs | tr ' ' $'\n')
-parallel -j"${JOBS}" doit ::: "${ips[@]}" ::: ${BASE_DOMAIN} ::: ${STATIC_IP} ::: ${RANDOM_DOMAIN} \
+
+read -r -a ips < <(xargs < "${INPUT_FILE}")
+parallel -j${JOBS} doit ::: "${ips[@]}" ::: ${BASE_DOMAIN} ::: ${STATIC_IP} ::: ${RANDOM_SUB} \
     | tee ${TMPFILE}
+echo "Removed ${PIPESTATUS[0]} of $(wc -l ${TMPFILE} | cut -f1 -d' ') servers from list."
 grep UP ${TMPFILE} \
     | cut -f2 -d' ' \
     | sort | uniq | sort -V > ${OUTPUT_FILE}
