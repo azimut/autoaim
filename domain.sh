@@ -1,8 +1,6 @@
 #!/bin/bash
 
-set -e
-set -x
-set -u
+set -exu
 
 # whois-domain
 # shodan-api
@@ -17,14 +15,19 @@ set -u
 # reverse-index.nse
 # unusual-port.nse
 
+# some missing searchs
+# https://github.com/bit4woo/teemo/
+
 NMAP=/usr/local/bin/nmap
+BESTWHOIS=$HOME/projects/sec/bestwhois/bestwhois
 AMASS=$HOME/projects/sec/amass/amass
 ONEFORALL=$HOME/projects/sec/OneForAll/oneforall/oneforall.py
 SUBDOMAINIZER=$HOME/projects/sec/SubDomainizer/SubDomainizer.py
 INVENTUS=$HOME/projects/sec/Inventus
 FOLDER=data/domains
+
 grepdomain(){
-    egrep -h -o '[-[:alnum:]\.]+\.'${1} -r . \
+    egrep -h -o '[-_[:alnum:]\.]+\.'${1} -r . \
         | sed 's/^32m//g' \
         | sed 's/^253A//g' \
         | sort | uniq
@@ -41,30 +44,26 @@ mkdir -p ${FOLDER}/dig
 mkdir -p ${FOLDER}/nmap
 mkdir -p ${FOLDER}/oneforall
 mkdir -p ${FOLDER}/SubDomainizer
-#mkdir -p ${FOLDER}/inventus
 mkdir -p ${FOLDER}/hakrawler
 
-# inventus(){
-#     local domain=${1}
-#     file=${FOLDER}/inventus/domain_${domain}
-#     if [[ ! -f ${file} ]]; then
-#         cd $INVENTUS
-#         > inventus.log
-#         timeout 120 scrapy crawl inventus \
-    #                 -a domain=${domain} \
-    #                 -a subdomain_limit=100 \
-    #                 2>&1 | tee ${OLDPWD}/${file}
-#         cp -v inventus.log ${OLDPWD}/${file%/*}/log_${domain}_inventus.log
-#         > inventus.log
-#         cd -
-#     fi
-# }
+whoisxml(){
+    local domain=${1}
+    local file=data/whoisxml_${domain}.json
+    if [[ ! -f ${file} ]]; then
+        python3 ${BESTWHOIS} \
+                --nocolor \
+                --api $WHOISXML_API \
+                starbucks.com 2>&1 | tee ${file}
+    fi
+}
 
 hakrawler(){
     local domain=${1}
     local file=${FOLDER}/hakrawler/out_${domain}.txt
     if [[ ! -f ${file} ]]; then
-        timeout 120 hakrawler -scope yolo -linkfinder -depth 3 \
+        timeout 120 hakrawler \
+                -scope yolo \
+                -linkfinder -depth 3 \
                 -url ${domain} 2>&1 | tee ${file}
     fi
 }
@@ -130,12 +129,6 @@ subdomainizer(){
         python3 ${SUBDOMAINIZER} \
                 --url ${domain} \
                 -o ${file} 2>&1 | tee ${FOLDER}/SubDomainizer/all_${domain}.txt
-        ndomains="$(wc -l ${file} | cut -f1 -d' ')"
-        if [[ ${ndomains} -gt 0 ]]; then
-            notify-send -t 10000 \
-                        "SubDomainizer.py SUB found!" \
-                        "${ndomains} subdomains for ${domain}"
-        fi
     fi
 }
 amass_whois(){
@@ -143,16 +136,11 @@ amass_whois(){
     file=${FOLDER}/amass/whois_${domain}
     if [[ ! -f ${file} ]]; then
         $AMASS intel \
+               -config ${AMASS%/*}/config.ini \
                -d "${domain}" \
                -v \
                -whois -src \
                -o ${file}
-        ndomains="$(wc -l ${file} | cut -f1 -d' ')"
-        if [[ ${ndomains} -gt 0 ]]; then
-            notify-send -t 10000 \
-                        "Amass WHOIS found!" \
-                        "${ndomains} domains for ${domain}"
-        fi
     fi
 }
 
@@ -161,16 +149,11 @@ amass_passive(){
     file=${FOLDER}/amass/passive_${domain}
     if [[ ! -f ${file}.txt ]]; then
         $AMASS enum \
+               -config ${AMASS%/*}/config.ini \
                -d "${domain}" \
                -v \
                -passive -src \
                -oA ${file}
-        ndomains="$(wc -l ${file}.txt | cut -f1 -d' ')"
-        if [[ ${ndomains} -gt 0 ]]; then
-            notify-send -t 10000 \
-                        "Amass SUB found!" \
-                        "${ndomains} subdomains for ${domain}"
-        fi
     fi
 }
 
@@ -208,25 +191,20 @@ oneforall(){
                 --show=True \
                 run 2>&1 | tee ${FOLDER}/oneforall/output_${domain}.log
         cp -v ${csv} ${file}
-        ndomains="$(wc -l ${file} | cut -f1 -d' ')"
-        if [[ ${ndomains} -gt 0 ]]; then
-            notify-send -t 10000 \
-                        "OneForAll SUB found!" \
-                        "${ndomains} subdomains for ${domain}"
-        fi
     fi
 }
 
 while read -r domain; do
-    nmap_domain   "${domain}" # srv, nsec # SUBDOMAINs
+    whoisxml      "${domain}" # whois
+    nmap_domain   "${domain}" # srv, nsec      # SUBDOMAINs
     nmap_ns       "${domain}" # nil
-    dig_axfr      "${domain}" # axft # SUBDOMAINs
-    dig_any       "${domain}" # any # SUBDOMAINs or IPs (?)
-    oneforall     "${domain}"
+    dig_axfr      "${domain}" # axft           # SUBDOMAINs
+    dig_any       "${domain}" # any            # SUBDOMAINs or IPs (?)
+    oneforall     "${domain}" # passive        # SUBDOMAINS
     subdomainizer "${domain}" # web js crawler # SUBDOMAINs
-    inventus      "${domain}" # web crawler
-    amass_passive "${domain}" # passive # SUBDOMAINs
-    amass_whois   "${domain}" # whois # DOMAINs
+    hakrawler     "${domain}" # web crawler
+    amass_passive "${domain}" # passive        # SUBDOMAINs
+    amass_whois   "${domain}" # whois          # DOMAINs
     # Save subdomains
     grepdomain ${domain} \
         | sed 's/'${domain}'$//g' \
