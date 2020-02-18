@@ -34,6 +34,8 @@ grep '/' data/ips.txt | uncomment | trim |
         if [[ ! -f ${file} ]]; then
             $MASSDNS \
                 -s ${CONCURRENCY} \
+                --retry SERVFAIL \
+                -c 25 \
                 -o S \
                 -t PTR \
                 -r "${RESOLVERS}" \
