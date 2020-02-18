@@ -31,6 +31,8 @@ $MASSDNS -w ${DOMAIN}_massdns_simple_a.txt \
 $MASSDNS -w ${DOMAIN}_massdns_simple_soa.txt \
          -s ${CONCURRENT} \
          -t SOA \
+         --retry SERVFAIL \
+         -c 25 \
          -o F \
          -r ${AUTOAIM}/resolvers.txt \
          <(grep ' IN A ' ${DOMAIN}_massdns_simple_a.txt \
