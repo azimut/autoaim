@@ -1,54 +1,41 @@
-#!/bin/sh
+#!/bin/bash
 
-set -x
-set -e
-set -u
-
-# TODO: Might be approach is wrong and aquatone can resume...
-#       I know it won't mind re-scanning a domain so I guess
-#       I just need to keep processed thing
-# TODO: detect per port completion
-# TODO: estimate timeout values?
+set -exuo pipefail
 
 AQUATONE=$HOME/projects/sec/aquatone/aquatone
-#DATE=$(date +%s)
-FOLDER=data/aquatone #/${DATE}
+FOLDER=data/aquatone
+DATE=$(date +%s)
 
 mkdir -p ${FOLDER}
 
 trim(){ awk '{$1=$1};1' /dev/stdin ; }
-separator(){ printf '=%.0s' {0..30}; echo; }
-
-ips_processed(){
-    cat data/aquatone/aquatone_urls.txt \
-        | cut -f3- -d/ \
-        | cut -f1 -d/ \
-        | trim | sort | uniq
-}
-
 ips_with_open_ports(){
-    egrep -l '(80|443)/open/' data/*/*gnmap \
+    grep -E -l '(80|443|8000|8080)/open/' data/*/*.gnmap \
         | cut -f2 -d/ | trim
 }
-
-ips_pending(){
-    fgrep -vxf <(ips_processed) \
-          <(ips_with_open_ports)
+aquatone_processed_ips(){
+    local file=data/aquatone/aquatone_urls.txt
+    if [[ -f ${file} ]]; then
+        cut -f3 -d/ ${file} | sort | uniq
+    fi
 }
 
-pending=($(ips_pending))
+mapfile -t pending < <(ips_with_open_ports | grep -xvf <(aquatone_processed_ips))
 
-if [[ ${#pending[@]} -ne 0 ]]; then
-    separator
-    echo "Processing ${#pending[@]} ips..."
-    notify-send -t 10000 "Aquatone" "Processing ${#pending[@]} ips.."
-    separator
-    mkdir -p ${FOLDER}
-    printf '%s\n' ${pending[@]} | \
-        $AQUATONE -screenshot-timeout 60000 \
-                  -scan-timeout 1000 \
-                  -debug \
-                  -ports 80,443 \
-                  -threads 1 \
-                  -out ${FOLDER}
-fi
+[[ ${#pending[@]} -eq 0 ]] && {
+    echo "Nothing pending...exiting"
+    exit 0
+}
+
+[[ -d ${FOLDER} ]] && mv ${FOLDER} ${FOLDER}.${DATE}
+
+echo "Processing ${#pending[@]} ips..."
+notify-send -t 10000 "Aquatone" "Processing ${#pending[@]} ips.."
+
+printf '%s\n' "${pending[@]}" | \
+    $AQUATONE -screenshot-timeout 60000 \
+              -scan-timeout 1000 \
+              -debug \
+              -ports 80,443,8000,8080 \
+              -threads 1 \
+              -out ${FOLDER}
