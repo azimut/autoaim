@@ -2,8 +2,11 @@
 
 set -exuo pipefail
 
+NMAP_PARSE=$HOME/projects/sec/nmap-parse-output/nmap-parse-output
 BING=$HOME/projects/sec/bing-ip2hosts/bing-ip2hosts
 NMAP=/usr/bin/nmap
+
+# TODO: reenable tcp scanning on cloud
 
 # https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html
 # https://ip-ranges.amazonaws.com/ip-ranges.json
@@ -61,6 +64,19 @@ nmap_tcp_full(){
         fi
     fi
 }
+nmap_tcp_version(){
+    local ip=${1}
+    local output=data/${ip}/full_tcp_version
+    local input=data/${ip}/full_tcp.xml
+    local ports="$(bash ${NMAP_PARSE} ${input} ports)"
+    if [[ ! -f ${output}.nmap && -f ${input} && -n ${ports} ]]; then
+        sudo ${NMAP} -sTVC -v \
+             -oA ${output} \
+             --reason -n \
+             -p${ports} \
+             -Pn ${ip}
+    fi
+}
 
 while read -r ip ; do
     folder=data/${ip}
@@ -76,6 +92,7 @@ if [[ -s data/full.txt ]]; then
         folder=data/${ip}
         mkdir -p "${folder}"
         notify-send -t 5000 "FULL Scanning ${ip}..."
-        nmap_tcp_full ${ip}
+        nmap_tcp_full    ${ip}
+        nmap_tcp_version ${ip}
     done < <(cat data/full.txt | uncomment | trim)
 fi
