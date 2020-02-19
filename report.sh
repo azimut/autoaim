@@ -2,6 +2,8 @@
 
 set -u
 
+# TODO: this is am(e)ss ... but who cares it's just a report...well except if i miss something...but then again i am using bash...
+
 trim(){ awk '{$1=$1};1' /dev/stdin; }
 uncomment(){
     grep -v -e '^$' -e '^#' -e '^//' -e ';' /dev/stdin \
@@ -10,7 +12,7 @@ uncomment(){
 }
 
 #bash "${AUTOAIM}"/cleanupresolvers.sh "${AUTOAIM}"/resolvers.txt
-
+[[ ! -f domains.txt ]] && { exit 1; }
 # Takeover
 echo "======== servfail"
 find . -name servfail -exec cat {} \;
@@ -45,10 +47,23 @@ echo "======== AXFR"
 find . -name 'axfr*' -exec cat {} \; | uncomment
 echo "======== SubDomainizer Secrets"
 grep -A100 'I have found some secrets for you' ./*/data/domains/SubDomainizer/all*
-echo "======== NMAP"
+echo "======== NMAP TCP"
 #head -n2 ./*/data/domains/nmap/*.nmap
-grep -A1 ERROR ./*/data/domains/nmap/*.nmap
+#grep -A1 ERROR ./*/data/domains/nmap/*.nmap
+find . -name tcp.gnmap -exec sh -c "{ grep /open/ {} | cut -f2,4- -d' ' | sed 's#/open/[^/]*//[^/]*///,*##g' | sed 's#Ignored.*##g' | sed 's#[0-9]*/closed/[^/]*//[^/]*///,*##g' | sed 's#[0-9]*/filtered/[^/]*//[^/]*///,*##g'; }" \; | sort -k1,1V |
+    while read -r ip; do
+        echo -n $(cat ./*/data/${ip%% *}/provider 2>/dev/null | head -n1)". "
+        echo -n $(grep -h -F -I "${ip%% *}" ./*/data/domains/resolved/short_a_* | head -n1 | cut -f1 -d' ')H;
+        echo " ${ip} "
+    done | column -t -R4,5,6,7,8,9,10,11,12
+echo "======== NMAP FULL"
+find . -name full_tcp.gnmap -exec sh -c "{ grep /open/ {} | cut -f2,4- -d' ' | sed 's#/open/[^/]*//[^/]*///,*##g' | sed 's#Ignored.*##g' | sed 's#[0-9]*/closed/[^/]*//[^/]*///,*##g' | sed 's#[0-9]*/filtered/[^/]*//[^/]*///,*##g'; }" \; | sort -k1,1V |
+    while read -r ip; do
+        echo -n $(cat ./*/data/${ip%% *}/provider 2>/dev/null | head -n1)". "
+        echo -n $(grep -h -F -I "${ip%% *}" ./*/data/domains/resolved/short_a_* | head -n1 | cut -f1 -d' ')H;
+        echo " ${ip} "
+    done | column -t -R4,5,6,7,8,9,10,11,12
 echo "======== AMASS WHOIS"
-find . -name 'whois_*' -exec cat {} \; | uncomment | awk '{print $2;}' | sort -u
+#find . -name 'whois_*' -exec cat {} \; | uncomment | awk '{print $2;}' | sort -u
 echo "======== Trusttress"
 echo "sxiv */data/domains/resolved/trusttrees/"
