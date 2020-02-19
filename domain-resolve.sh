@@ -16,14 +16,14 @@ has_wildcard(){
     local domain="${1}"
     local ips=()
     # NOTE: increase and add more resolvers if more ips are needed
-    for _ in {1..5}; do
+    for x in {1..5}; do
         random_sub=$(openssl rand -base64 32 | tr -dc 'a-z0-9' | fold -w16 | head -n1)
         ips+=($(dig @1.1.1.1 +short "${random_sub}.${domain}"))
     done
     if [[ ${#ips[@]} -eq 0 ]]; then
         return 1
     fi
-    read -r -a unique_ips < <(printf '%s\n' "${ips[@]}" | sort -u)
+    mapfile -t unique_ips < <(printf '%s\n' "${ips[@]}" | sort -d | uniq)
     printf '%s\n' "${unique_ips[@]}"
     return 0
 }
@@ -31,14 +31,18 @@ has_wildcard(){
 # TODO: only supports 1 IP to ignore for wildcard
 resolved_domains() {
     local domain=${1}
-    local wildcard_ip=${2:-NADA}
+    shift
+    local wildcard_ips=("${@}")
     local filename=a_${domain}.txt.gz
     local filepath=${FOLDER}/${filename}
     if [[ -f ${filepath} ]]; then
-        if [[ ${wildcard_ip} != "NADA" ]]; then
+        if [[ ${#wildcard_ips[@]} -ne 0 ]]; then
             (
+                wildcard_grep="${wildcard_ips[*]/%/|}"
+                wildcard_grep="${wildcard_grep:0:-1}"
+                wildcard_grep="${wildcard_grep// /}"
                 zgrep -A7 NOERROR ${filepath} \
-                    | grep -B3 -P '(IN A (?!'"${wildcard_ip}"')|IN CNAME )' \
+                    | grep -B3 -P '(IN A (?!'"${wildcard_grep}"')|IN CNAME )' \
                     | grep 'IN A$' \
                     | cut -f1 -d' ' \
                     | sort \
@@ -148,9 +152,11 @@ fi
 
 # Wildcard detection
 mapfile -t wildcard_ips < <(has_wildcard ${DOMAIN})
+
 if [[ ${#wildcard_ips[@]} -gt 0 ]]; then
     printf '%s\n' "${wildcard_ips[@]}" > data/domains/wilcards_${DOMAIN}
 fi
+
 
 # Adds subdomains found in the same "project"
 subdomains=($({ grepsubdomain ${DOMAIN}; cat ../*/data/sub*; } | sort | uniq))
