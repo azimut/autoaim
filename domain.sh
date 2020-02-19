@@ -127,6 +127,7 @@ subdomainizer(){
     if [[ ! -f ${file} ]]; then
         #-g -gt $GITHUB_TOKEN # it is buggy
         python3 ${SUBDOMAINIZER} \
+                -k \
                 --url ${domain} \
                 -o ${file} 2>&1 | tee ${FOLDER}/SubDomainizer/all_${domain}.txt
     fi
