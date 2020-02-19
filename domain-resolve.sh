@@ -154,7 +154,7 @@ fi
 mapfile -t wildcard_ips < <(has_wildcard ${DOMAIN})
 
 if [[ ${#wildcard_ips[@]} -gt 0 ]]; then
-    printf '%s\n' "${wildcard_ips[@]}" > data/domains/wilcards_${DOMAIN}
+    printf '%s\n' "${wildcard_ips[@]}" > data/domains/wildcards_${DOMAIN}
 fi
 
 
