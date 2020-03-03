@@ -5,6 +5,7 @@ set -exuo pipefail
 # TODO: get all MX, but losses original if CNAME chained
 NMAP=/usr/local/bin/nmap
 
+trim(){ awk '{$1=$1};1' /dev/stdin; }
 upsert_in_file(){
     local file="${1}"
     shift
@@ -34,6 +35,7 @@ nmap_mx(){
              -v -sTV --reason \
              -oA ${file} \
              -F \
+             -6 \
              --resolve-all \
              --script='default or banner or fcrdns'"$(nmap_ext)" \
              ${mx}
@@ -42,8 +44,9 @@ nmap_mx(){
 
 if compgen -G data/domains/resolved/short_mx_*; then
     sort -u < data/domains/resolved/short_mx_*
-    cut -f1,6 -d' ' < data/domains/resolved/short_mx_* | sort -u |
-        while read -r host mx; do
+    cut -f1,6 -d' ' < data/domains/resolved/short_mx_* | trim | sort -u |
+        while IFS=' ' read -r host mx; do
+            echo "${host} ${mx}"
             mkdir -p ../mx/${mx}
             upsert_in_file ../mx/${mx}/hosts ${host}
             nmap_mx ${mx}
