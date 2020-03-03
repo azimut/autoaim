@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Used to cleanup wildcard domains from a file. Used mainly for TLDs
+
 set -e
 set -x
 
@@ -15,6 +17,8 @@ prefix(){ sed 's#^#'"${1}"'#g' /dev/stdin; }
 
 $MASSDNS -t A \
          -o S \
+         --retry SERVFAIL \
+         -c 25 \
          -w "${AUTOAIM}"/massdns_wildcard.txt \
          -s "${MASS}" \
          -r "${RESOLVERS}" \

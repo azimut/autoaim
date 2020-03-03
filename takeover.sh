@@ -18,8 +18,8 @@ cnamedomains(){
 
 # This takes care of CNAMEs
 if cnamedomains ${DOMAIN} &>/dev/null; then
-    subjack -ssl -m -v -w <(cnamedomains ${DOMAIN}) 2>&1 \
+    subjack -ssl -v -w <(cnamedomains ${DOMAIN}) 2>&1 \
         | tee ${FOLDER}/output_${DOMAIN}.https.log
-    subjack -m -v -w <(cnamedomains ${DOMAIN}) 2>&1 \
+    subjack -v -w <(cnamedomains ${DOMAIN}) 2>&1 \
         | tee ${FOLDER}/output_${DOMAIN}.http.log
 fi
