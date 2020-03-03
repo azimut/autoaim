@@ -5,13 +5,49 @@ set -exuo pipefail
 DOMAIN=${1:-${PWD##*/}}
 CONCURRENCY=${2:-20}
 
+NMAP=/usr/local/bin/nmap
 RESOLVERS=$HOME/projects/sec/autoaim/resolvers.txt
 MASSDNS=$HOME/projects/sec/massdns/bin/massdns
 FOLDER=data/domains/resolved
+SUBDOMAINIZER=$HOME/projects/sec/SubDomainizer/SubDomainizer.py
 
 mkdir -p ${FOLDER}
-mkdir -p ${FOLDER}/trusttrees
 
+mkdir -p ${FOLDER}/../SubDomainizer
+mkdir -p ${FOLDER}/../hakrawler
+mkdir -p ${FOLDER}/../dig
+mkdir -p ${FOLDER}/../nmap
+mkdir -p ${FOLDER}/../trusttrees
+
+# To any with NS
+nmap_nsec(){
+    local domain=${1}
+    local ns=${2}
+    file=${FOLDER}/../nmap/nsec_${domain}_${ns}
+    if [[ ! -f ${file}.gnmap ]]; then
+        sudo $NMAP -sn -n -v -Pn \
+             --reason \
+             --dns-servers 1.1.1.1 \
+             --script "dns-nsec-enum,dns-nsec3-enum" \
+             --script-args "dns-nsec-enum.domains=${domain},dns-nsec3-enum.domains=${domain}" \
+             -oA ${file} \
+             ${ns}
+    fi
+}
+
+trim(){ awk '{$1=$1};1' /dev/stdin; }
+# To any with NS/sub, assume NS resolves
+dig_axfr(){
+    local domain=${1}
+    local ns=${2}
+    dig @1.1.1.1 +short ${ns} A | trim |
+        while read -r ip; do
+            file=${FOLDER}/../dig/axfr_${ns}_${ip}_${domain}
+            if [[ ! -f ${file} ]]; then
+                dig @${ip} ${domain} AXFR 2>&1 | tee ${file}
+            fi
+        done
+}
 has_wildcard(){
     local domain="${1}"
     local ips=()
@@ -28,7 +64,7 @@ has_wildcard(){
     return 0
 }
 
-# TODO: only supports 1 IP to ignore for wildcard
+# TODO: If wildcard is a CNAME...this won't catch it
 resolved_domains() {
     local domain=${1}
     shift
@@ -86,8 +122,8 @@ printfnumber(){
 graph_trusttrees(){
     local domain=${1}
     local filename=${domain}_trust_tree_graph.png
-    if [[ ! -f ${FOLDER}/trusttrees/${domain}_trusttrees.log ]]; then
-        cd ${FOLDER}/trusttrees
+    if [[ ! -f ${FOLDER}/../trusttrees/${domain}_trusttrees.log ]]; then
+        cd ${FOLDER}/../trusttrees
         trusttrees --gandi-api-v5-key $GANDI_API \
                    --resolvers <(echo -e "8.8.8.8\n1.1.1.1") \
                    --target ${domain} -x png 2>&1 | tee ${domain}_trusttrees.log
@@ -96,6 +132,37 @@ graph_trusttrees(){
         cd -
     fi
 }
+# To any resolved subdomain
+subdomainizer(){
+    local domain=${1}
+    file=${FOLDER}/../SubDomainizer/sub_${domain}.txt
+    if [[ ! -f ${file} ]]; then
+        #-g -gt $GITHUB_TOKEN # it is buggy
+        timeout --signal=9 120 python3 ${SUBDOMAINIZER} \
+                -k \
+                --url ${domain} \
+                -o ${file} 2>&1 | tee ${FOLDER}/../SubDomainizer/all_${domain}.txt
+    fi
+}
+
+# To any resolved subdomain
+hakrawler(){
+    local domain=${1}
+    local port=${2-80}
+    if [[ ${port} -eq 80 ]]; then
+        local url=http://${domain}/
+    else
+        local url=https://${domain}/
+    fi
+    local file=${FOLDER}/../hakrawler/out_${domain}_${port}.txt
+    if [[ ! -f ${file} ]]; then
+        timeout 120 hakrawler \
+                -scope yolo \
+                -linkfinder -depth 3 \
+                -url ${url} 2>&1 | tee ${file}
+    fi
+}
+
 massdns(){
     local type=${1}
     shift
@@ -137,8 +204,15 @@ explode_domains(){
         explode_domain "${domain}"
     done
 }
+port_open(){
+    local port=${1}
+    local host=${2}
+    nmap -sT -n -oG - -p${port} ${host} | grep -F /open/
+}
 
-# Gave up right away if root domain returns SRVFAIL
+###################################################
+
+# Gave up right away if root domain or subdomain returns SERVFAIL
 if dig @1.1.1.1 ${DOMAIN} A | grep SERVFAIL; then
     echo "SERVFAIL returned for ${DOMAIN} giving up"
     echo ${DOMAIN} > data/domains/servfail
@@ -152,11 +226,9 @@ fi
 
 # Wildcard detection
 mapfile -t wildcard_ips < <(has_wildcard ${DOMAIN})
-
 if [[ ${#wildcard_ips[@]} -gt 0 ]]; then
     printf '%s\n' "${wildcard_ips[@]}" > data/domains/wildcards_${DOMAIN}
 fi
-
 
 # Adds subdomains found in the same "project"
 subdomains=($({ grepsubdomain ${DOMAIN}; cat ../*/data/sub*; } | sort | uniq))
@@ -169,37 +241,49 @@ domains+=("${DOMAIN}")
 notify-send -t 10000 \
             "Massdns A" \
             "of $(printfnumber ${#domains[@]}) subdomains..."
-
 massdns A "${domains[@]}"
-mapfile -t domains < <(resolved_domains ${DOMAIN} "${wildcard_ips[@]}")
-
-if [[ ${#domains[@]} -gt 0 ]]; then
-    massdns AAAA "${domains[@]}"
-    massdns NS   "${domains[@]}"
-    massdns MX   "${domains[@]}"
-    massdns TXT  "${domains[@]}"
-fi
-# DNAME, SPF, DMARC, CNAME (i mean if it has it but also has other things)
 
 # TODO: CNAME domains are missing from IP gather
-grep -F -h ${DOMAIN} data/domains/*/short_a_${DOMAIN}.txt \
-    | grep -F 'IN A ' \
-    | cut -f5 -d' ' | sort | uniq | sort -V \
-    | tee data/ips.txt
+if compgen -G data/domains/*/short_a_${DOMAIN}.txt; then
+    grep -F -h ${DOMAIN} data/domains/*/short_a_${DOMAIN}.txt \
+        | grep -F 'IN A ' \
+        | cut -f5 -d' ' | sort | uniq | sort -V \
+        | tee data/ips.txt
+fi
 
-# CLI command:
-# fgrep -h starbucks.fr domains/*/short_a_starbucks.fr.txt | grep CNAME | cut -f1,5 -d' ' | sort | uniq | sort -k2,2d | column -t
+mapfile -t domains < <(resolved_domains ${DOMAIN} "${wildcard_ips[@]}")
+# If any NOERROR, try other records
+if [[ ${#domains[@]} -gt 0 ]]; then
+    massdns AAAA  "${domains[@]}"
+    massdns NS    "${domains[@]}"
+    massdns MX    "${domains[@]}"
+    massdns TXT   "${domains[@]}"
+fi
+# TODO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
 
-# TODO: CNAME domains are missing from trusttrees graph
-resolved_domains ${DOMAIN} "${wildcard_ips[@]}" |
-    while read -r nsdomain; do
-        graph_trusttrees "${nsdomain}"
+if compgen -G data/domains/resolved/short_ns_*; then
+    cut -f1,5 -d ' ' < data/domains/resolved/short_ns_* \
+        | sort -u |
+        while read -r domain ns; do
+            graph_trusttrees ${domain}
+            dig_axfr         ${domain} ${ns}
+            nmap_nsec        ${domain} ${ns}
+        done
+fi
+
+# Work on resolved domains
+printf '%s\n' "${domains[@]}" |
+    while read -r domain; do
+        if port_open 80 ${domain}; then
+            hakrawler     ${domain}
+            subdomainizer ${domain}
+        fi
     done
 
 # Show Domains that NOERROR that could be bruteforced down
 rm -f data/domains/noerror
 for ndomain in $(noerror_domains ${DOMAIN}); do
-    if grep -q ${ndomain} <(resolved_domains ${DOMAIN} "${wildcard_ips[@]}"); then
+    if grep -q ${ndomain} <(printf '%s\n' "${domains[@]}"); then
         continue
     else
         echo ${ndomain} | tee -a data/domains/noerror

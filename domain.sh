@@ -15,19 +15,16 @@ set -exu
 # reverse-index.nse
 # unusual-port.nse
 
-# some missing searchs
-# https://github.com/bit4woo/teemo/
+DOMAIN=${1:-${PWD##*/}}
 
 NMAP=/usr/local/bin/nmap
 BESTWHOIS=$HOME/projects/sec/bestwhois/bestwhois
 AMASS=$HOME/projects/sec/amass/amass
 ONEFORALL=$HOME/projects/sec/OneForAll/oneforall/oneforall.py
-SUBDOMAINIZER=$HOME/projects/sec/SubDomainizer/SubDomainizer.py
-INVENTUS=$HOME/projects/sec/Inventus
 FOLDER=data/domains
 
 grepdomain(){
-    egrep -h -o '[-_[:alnum:]\.]+\.'${1} -r . \
+    grep -E -h -o '[-_[:alnum:]\.]+\.'${1} -r . \
         | sed 's/^32m//g' \
         | sed 's/^253A//g' \
         | sort | uniq
@@ -43,9 +40,8 @@ mkdir -p ${FOLDER}/amass
 mkdir -p ${FOLDER}/dig
 mkdir -p ${FOLDER}/nmap
 mkdir -p ${FOLDER}/oneforall
-mkdir -p ${FOLDER}/SubDomainizer
-mkdir -p ${FOLDER}/hakrawler
 
+# Only main domain
 whoisxml(){
     local domain=${1}
     local file=data/whoisxml_${domain}.json
@@ -57,17 +53,37 @@ whoisxml(){
     fi
 }
 
-hakrawler(){
-    local domain=${1}
-    local file=${FOLDER}/hakrawler/out_${domain}.txt
-    if [[ ! -f ${file} ]]; then
-        timeout 120 hakrawler \
-                -scope yolo \
-                -linkfinder -depth 3 \
-                -url ${domain} 2>&1 | tee ${file}
-    fi
+# address      - with NS
+# connectivity - with NS
+zonemaster(){
+    # elapsed, noprogress
+    zonemaster-cli --test address \
+                   --test connectivity \
+                   --test consistency \
+                   --test delegation \
+                   --test nameserver \
+                   --level DEBUG --show_level --show_module \
+                   --elapsed \
+                   --noprogress \
+                   --ipv4 --ipv6 ${domain}
 }
 
+# To any with NS
+dig_any(){
+    local domain=${1}
+    dig @1.1.1.1 +short ${domain} NS | uncomment | \
+        while read -r ns; do
+            dig @1.1.1.1 +short ${ns} A | uncomment |
+                while read -r ip; do
+                    file=${FOLDER}/dig/any_${ns}_${ip}_${domain}
+                    if [[ ! -f ${file} ]]; then
+                        dig @${ip} ${domain} ANY 2>&1 | tee ${file}
+                    fi
+                done
+        done
+}
+
+# To any with NS
 nmap_domain(){
     local domain=${1}
     file=${FOLDER}/nmap/domain_${domain}
@@ -75,63 +91,14 @@ nmap_domain(){
         sudo $NMAP -sn -n -v -Pn \
              --reason \
              --dns-servers 1.1.1.1 \
-             --script "dns-check-zone,dns-srv-enum,dns-nsec-enum,dns-nsec3-enum" \
-             --script-args "dns-check-zone.domain=${domain},dns-srv-enum.domain=${domain},dns-nsec-enum.domains=${domain},dns-nsec3-enum.domains=${domain}" \
+             --script "dns-check-zone,dns-srv-enum" \
+             --script-args "dns-check-zone.domain=${domain},dns-srv-enum.domain=${domain}" \
              -oA ${file} \
              1.1.1.1
     fi
 }
 
-nmap_ns(){
-    local domain=${1}
-    dig +short NS ${domain} | uncomment | \
-        while read -r ns; do
-            file=${FOLDER}/nmap/ns_${ns}_info
-            if [[ ! -f ${file}.gnmap ]]; then
-                sudo $NMAP -sSUV -p 53 -n -v -Pn \
-                     --reason \
-                     --script "banner,dns-nsid,dns-recursion" \
-                     -oA ${file} \
-                     ${ns}
-            fi
-        done
-}
-dig_axfr(){
-    local domain=${1}
-    dig +short NS ${domain} | uncomment | \
-        while read -r ns; do
-            file=${FOLDER}/dig/axfr_${ns}_${domain}
-            if [[ ! -f ${file} ]]; then
-                dig AXFR @${ns} ${domain} &> ${file}
-                cat ${file}
-            fi
-        done
-}
-
-# NS Subdomains - ANY (mind you...you only get what is on the cache of the NS server ATM )
-dig_any(){
-    local domain=${1}
-    dig +short NS ${domain} | uncomment | \
-        while read -r ns; do
-            file=${FOLDER}/dig/any_${ns}_${domain}
-            if [[ ! -f ${file} ]]; then
-                dig ANY @${ns} ${domain} &> ${file}
-                cat ${file}
-            fi
-        done
-}
-
-subdomainizer(){
-    local domain=${1}
-    file=${FOLDER}/SubDomainizer/sub_${domain}.txt
-    if [[ ! -f ${file} ]]; then
-        #-g -gt $GITHUB_TOKEN # it is buggy
-        python3 ${SUBDOMAINIZER} \
-                -k \
-                --url ${domain} \
-                -o ${file} 2>&1 | tee ${FOLDER}/SubDomainizer/all_${domain}.txt
-    fi
-}
+# Main domain
 amass_whois(){
     local domain=${1}
     file=${FOLDER}/amass/whois_${domain}
@@ -145,6 +112,7 @@ amass_whois(){
     fi
 }
 
+# Main domain
 amass_passive(){
     local domain=${1}
     file=${FOLDER}/amass/passive_${domain}
@@ -197,28 +165,24 @@ oneforall(){
 
 while read -r domain; do
     whoisxml      "${domain}" # whois
-    nmap_domain   "${domain}" # srv, nsec      # SUBDOMAINs
-    nmap_ns       "${domain}" # nil
-    dig_axfr      "${domain}" # axft           # SUBDOMAINs
-    dig_any       "${domain}" # any            # SUBDOMAINs or IPs (?)
-    oneforall     "${domain}" # passive        # SUBDOMAINS
-    subdomainizer "${domain}" # web js crawler # SUBDOMAINs
-    hakrawler     "${domain}" # web crawler
-    amass_passive "${domain}" # passive        # SUBDOMAINs
-    amass_whois   "${domain}" # whois          # DOMAINs
+    nmap_domain   "${domain}" # srv, nsec # SUBDOMAINs
+    dig_any       "${domain}" # any       # SUBDOMAINs or IPs (?)
+    oneforall     "${domain}" # passive   # SUBDOMAINS
+    amass_passive "${domain}" # passive   # SUBDOMAINs
+    amass_whois   "${domain}" # whois     # DOMAINs
     # Save subdomains
     grepdomain ${domain} \
         | sed 's/'${domain}'$//g' \
         | uncomment \
         | rev | cut -c2- | rev \
         | sort > data/subdomains_${domain}.txt
-done < <(echo ${1}) #<(echo starbucks.) #<(cat data/domains.txt | uncomment | trim | grep '.com.sg')
+done < <(echo ${DOMAIN}) #<(echo starbucks.) #<(cat data/domains.txt | uncomment | trim | grep '.com.sg')
 
 result=""
 for dir in data/domains/*/; do
     cd ${dir}
     result+=${dir#data/domains/}
-    result+=$(grepdomain ${1} | wc -l)
+    result+=$(grepdomain ${DOMAIN} | wc -l)
     result+=$'\n'
     cd -
 done
