@@ -52,16 +52,16 @@ has_wildcard(){
     local domain="${1}"
     local ips=()
     # NOTE: increase and add more resolvers if more ips are needed
-    for x in {1..5}; do
+    for _ in {1..5}; do
         random_sub=$(openssl rand -base64 32 | tr -dc 'a-z0-9' | fold -w16 | head -n1)
         ips+=($(dig @1.1.1.1 +short "${random_sub}.${domain}"))
     done
     if [[ ${#ips[@]} -eq 0 ]]; then
         return 1
     fi
-    mapfile -t unique_ips < <(printf '%s\n' "${ips[@]}" | sort -d | uniq)
-    printf '%s\n' "${unique_ips[@]}"
-    return 0
+    printf '%s\n' "${ips[@]}" \
+        | sort -d \
+        | uniq
 }
 
 # TODO: If wildcard is a CNAME...this won't catch it
@@ -238,8 +238,8 @@ printf '%s\n' "${subdomains[@]}" > ${FOLDER}/raw_subdomains_${DOMAIN}.txt
 domains=("${subdomains[@]/%/.${DOMAIN}}")
 domains+=("${DOMAIN}")
 
-notify-send -t 10000 \
-            "Massdns A" \
+notify-send -t 15000 \
+            "Massdns A for ${DOMAIN}" \
             "of $(printfnumber ${#domains[@]}) subdomains..."
 massdns A "${domains[@]}"
 
