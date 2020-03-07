@@ -64,7 +64,6 @@ has_wildcard(){
         | uniq
 }
 
-# TODO: If wildcard is a CNAME...this won't catch it
 resolved_domains() {
     local domain=${1}
     shift
@@ -78,7 +77,7 @@ resolved_domains() {
                 wildcard_grep="${wildcard_grep:0:-1}"
                 wildcard_grep="${wildcard_grep// /}"
                 zgrep -A7 NOERROR ${filepath} \
-                    | grep -B3 -P '(IN A (?!'"${wildcard_grep}"')|IN CNAME )' \
+                    | grep -B3 -P '(IN A (?!'"${wildcard_grep}"')|IN CNAME (?!'"${wildcard_grep}"'))' \
                     | grep 'IN A$' \
                     | cut -f1 -d' ' \
                     | sort \
