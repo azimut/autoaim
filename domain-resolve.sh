@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -exuo pipefail
+set -euo pipefail
 
 DOMAIN=${1:-${PWD##*/}}
 CONCURRENCY=${2:-20}
@@ -10,6 +10,8 @@ RESOLVERS=$HOME/projects/sec/autoaim/resolvers.txt
 MASSDNS=$HOME/projects/sec/massdns/bin/massdns
 FOLDER=data/domains/resolved
 SUBDOMAINIZER=$HOME/projects/sec/SubDomainizer/SubDomainizer.py
+
+source ${HOME}/projects/sec/autoaim/helpers.sh
 
 mkdir -p ${FOLDER}
 
@@ -35,7 +37,6 @@ nmap_nsec(){
     fi
 }
 
-trim(){ awk '{$1=$1};1' /dev/stdin; }
 # To any with NS/sub, assume NS resolves
 dig_axfr(){
     local domain=${1}
@@ -47,21 +48,6 @@ dig_axfr(){
                 dig @${ip} ${domain} AXFR 2>&1 | tee ${file}
             fi
         done
-}
-has_wildcard(){
-    local domain="${1}"
-    local ips=()
-    # NOTE: increase and add more resolvers if more ips are needed
-    for _ in {1..5}; do
-        random_sub=$(openssl rand -base64 32 | tr -dc 'a-z0-9' | fold -w16 | head -n1)
-        ips+=($(dig @1.1.1.1 +short "${random_sub}.${domain}"))
-    done
-    if [[ ${#ips[@]} -eq 0 ]]; then
-        return 1
-    fi
-    printf '%s\n' "${ips[@]}" \
-        | sort -d \
-        | uniq
 }
 
 resolved_domains() {
@@ -104,19 +90,6 @@ noerror_domains(){
             | grep 'IN A' \
             | cut -f1 -d' '
     fi
-}
-grepdomain(){
-    grep -E -h -o '[-_[:alnum:]\.]+\.'${1} -r . \
-        | sed 's/^32m//g' \
-        | sed 's/^253A//g' \
-        | sort | uniq
-}
-grepsubdomain(){
-    local domain=${1}
-    grepdomain ${domain} | sed 's/.'${domain}'$//g'
-}
-printfnumber(){
-    LC_NUMERIC=en_US printf "%'.f\n" "${1}"
 }
 graph_trusttrees(){
     local domain=${1}
@@ -189,59 +162,90 @@ massdns(){
     fi
     gzip --best -f ${output}
 }
-explode_domain(){
+
+
+get_subdomains_atom(){
     local domain="${1}"
-    local regex_dot='\.'
-    echo ${domain}
-    if [[ $domain =~ $regex_dot ]]; then
-        explode_domain "${domain#*.}"
-    fi
-}
-explode_domains(){
+    shift
     local domains=("${@}")
-    for domain in "${domains[@]}"; do
-        explode_domain "${domain}"
-    done
+    printf '%s\n' "${domains[@]}" \
+        | sed 's#'"${domain}"'.$##g' \
+        | rev \
+        | cut -f2 -d. \
+        | rev
 }
-port_open(){
-    local port=${1}
-    local host=${2}
-    nmap -sT -n -oG - -p${port} ${host} | grep -F /open/
+get_most_frequent_subdomains(){
+    local domain="${1}"
+    shift
+    local domains=("${@}")
+    get_subdomains_atom "${domain}" "${domains[@]}" \
+        | sort \
+        | uniq -c |
+        while read -r num sub; do
+            if [[ $num -ge 60 ]]; then
+                echo ${sub}
+            fi
+        done | sed 's#$#'".${domain}."'#g'
+}
+remove_possible_wildcards_on_subdomains(){
+    local domain="${1}"
+    shift
+    local domains=("${@}")
+    local frequents=($(get_most_frequent_subdomains "${domain}" "${domains[@]}"))
+    for domain in "${domains[@]}"; do
+        wildcard=no
+        for frequent in "${frequents[@]}"; do
+            if [[ $domain == *${frequent}* ]]; then
+                wildcard=yes
+            fi
+        done
+        if [[ $wildcard == "no" ]]; then
+            echo ${domain}
+        fi
+    done
+    printf '%s\n' "${frequents[@]}"
+}
+
+does_servfail(){
+    local domain="${1}"
+    if dig @1.1.1.1 ${domain} A | grep SERVFAIL; then
+        echo "SERVFAIL returned for ${domain} giving up"
+        echo ${domain} > data/domains/servfail
+        return 0
+    fi
+    if dig @1.1.1.1 $(openssl rand -base64 32 | tr -dc 'a-z0-9' | fold -w16 | head -n1).${domain} A | grep SERVFAIL; then
+        echo "SERVFAIL returned for ${domain} giving up"
+        echo ${domain} > data/domains/servfail_sub
+        return 0
+    fi
+    return 1
 }
 
 ###################################################
 
 # Gave up right away if root domain or subdomain returns SERVFAIL
-if dig @1.1.1.1 ${DOMAIN} A | grep SERVFAIL; then
-    echo "SERVFAIL returned for ${DOMAIN} giving up"
-    echo ${DOMAIN} > data/domains/servfail
-    exit 1
-fi
-if dig @1.1.1.1 $(openssl rand -base64 32 | tr -dc 'a-z0-9' | fold -w16 | head -n1).${DOMAIN} A | grep SERVFAIL; then
-    echo "SERVFAIL returned for ${DOMAIN} giving up"
-    echo ${DOMAIN} > data/domains/servfail_sub
-    exit 1
-fi
+does_servfail "${DOMAIN}" && { echo "error: servfail"; exit 1; }
 
-# Wildcard detection
-mapfile -t wildcard_ips < <(has_wildcard ${DOMAIN})
+# ROOT Wildcard detection
+mapfile -t wildcard_ips < <(get_wildcards ${DOMAIN})
 if [[ ${#wildcard_ips[@]} -gt 0 ]]; then
     printf '%s\n' "${wildcard_ips[@]}" > data/domains/wildcards_${DOMAIN}
 fi
 
-# Adds subdomains found in the same "project"
+# Adds RAW subdomains found in the same "project"
 subdomains=($({ grepsubdomain ${DOMAIN}; cat ../*/data/sub*; } | sort | uniq))
 subdomains=($(explode_domains "${subdomains[@]}" | sort | uniq))
 printf '%s\n' "${subdomains[@]}" > ${FOLDER}/raw_subdomains_${DOMAIN}.txt
 
-domains=("${subdomains[@]/%/.${DOMAIN}}")
-domains+=("${DOMAIN}")
+domains=("${subdomains[@]/%/.${DOMAIN}}") # append root domain
+domains+=("${DOMAIN}") # add back root domain
 
 notify-send -t 15000 \
             "Massdns A for ${DOMAIN}" \
             "of $(printfnumber ${#domains[@]}) subdomains..."
-massdns A "${domains[@]}"
+#massdns A "${domains[@]}"
 
+# Gather ips
 # TODO: CNAME domains are missing from IP gather
 if compgen -G data/domains/*/short_a_${DOMAIN}.txt; then
     grep -F -h ${DOMAIN} data/domains/*/short_a_${DOMAIN}.txt \
@@ -250,7 +254,12 @@ if compgen -G data/domains/*/short_a_${DOMAIN}.txt; then
         | tee data/ips.txt
 fi
 
+# Gather resolved domains
 mapfile -t domains < <(resolved_domains ${DOMAIN} "${wildcard_ips[@]}")
+mapfile -t domains < <(remove_possible_wildcards_on_subdomains ${DOMAIN} "${domains[@]}")
+
+printf '%s\n' "${domains[@]}" > data/domains/resolved/resolved.txt
+
 # If any NOERROR, try other records
 if [[ ${#domains[@]} -gt 0 ]]; then
     massdns AAAA  "${domains[@]}"
@@ -260,9 +269,9 @@ if [[ ${#domains[@]} -gt 0 ]]; then
 fi
 # TODO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
 
+# Work on domains with NS servers
 if compgen -G data/domains/resolved/short_ns_*; then
-    cut -f1,5 -d ' ' < data/domains/resolved/short_ns_* \
-        | sort -u |
+    cut -f1,5 -d ' ' < data/domains/resolved/short_ns_* | sort -u |
         while read -r domain ns; do
             graph_trusttrees ${domain}
             dig_axfr         ${domain} ${ns}
@@ -271,9 +280,9 @@ if compgen -G data/domains/resolved/short_ns_*; then
 fi
 
 # Work on resolved domains
-printf '%s\n' "${domains[@]}" |
+printf '%s\n' "${domains[@]}" | uncomment |
     while read -r domain; do
-        if port_open 80 ${domain}; then
+        if is_port_open 80 ${domain}; then
             hakrawler     ${domain}
             subdomainizer ${domain}
         fi
