@@ -5,19 +5,8 @@ set -exuo pipefail
 # TODO: get all MX, but losses original if CNAME chained
 NMAP=/usr/local/bin/nmap
 
-trim(){ awk '{$1=$1};1' /dev/stdin; }
-upsert_in_file(){
-    local file="${1}"
-    shift
-    local inserts=("${@}")
-    if [[ ! -f ${file} ]]; then
-        touch ${file}
-    fi
-    for insert in "${inserts[@]}" ; do
-        grep -F -x "${insert}" "${file}" \
-            || echo "${insert}" >> "${file}"
-    done
-}
+source ${HOME}/projects/sec/autoaim/helpers.sh
+
 nmap_ext(){
     local nmap_ext=( ssh ssl smtp pop3 tls imap )
     local nmap_string=""
@@ -26,6 +15,7 @@ nmap_ext(){
     done
     echo "${nmap_string}"
 }
+
 nmap_mx(){
     local mx=${1}
     local file=../mx/${mx}/nmap

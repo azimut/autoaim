@@ -12,18 +12,7 @@ fi
 
 TASKS=("${@}")
 
-in_array() {
-    local word=$1
-    shift
-    for e in "$@"; do [[ "$e" == "$word" ]] && return 0; done
-    return 1
-}
-trim(){ awk '{$1=$1};1' /dev/stdin; }
-uncomment(){
-    grep -v -e '^$' -e '^#' -e '^//' -e ';' /dev/stdin \
-        | sed -e 's/#.*$//g' \
-        | sed -e 's/;;.*$//g'
-}
+source ${HOME}/projects/sec/autoaim/helpers.sh
 
 #bash "${AUTOAIM}"/cleanupresolvers.sh "${AUTOAIM}"/resolvers.txt
 

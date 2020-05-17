@@ -23,18 +23,7 @@ AMASS=$HOME/projects/sec/amass/amass
 ONEFORALL=$HOME/projects/sec/OneForAll/oneforall/oneforall.py
 FOLDER=data/domains
 
-grepdomain(){
-    grep -E -h -o '[-_[:alnum:]\.]+\.'${1} -r . \
-        | sed 's/^32m//g' \
-        | sed 's/^253A//g' \
-        | sort | uniq
-}
-uncomment(){
-    grep -v -e '^$' -e '^#' -e '^//' -e '^;;' /dev/stdin \
-        | sed -e 's/#.*$//g' \
-        | sed -e 's/;;.*$//g'
-}
-trim(){ awk '{$1=$1};1' /dev/stdin; }
+source ${HOME}/projects/sec/autoaim/helpers.sh
 
 mkdir -p ${FOLDER}/amass
 mkdir -p ${FOLDER}/dig
