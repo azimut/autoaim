@@ -26,6 +26,12 @@ uncomment(){
         | sed -e 's/#.*$//g' \
         | sed -e 's/;;.*$//g'
 }
+in_array() {
+    local word=$1
+    shift
+    for e in "$@"; do [[ "$e" == "$word" ]] && return 0; done
+    return 1
+}
 #==================================================
 # Impure - Depends on network
 #==================================================
@@ -54,7 +60,7 @@ is_port_open(){
 # Impure - Depends on file
 #==================================================
 grepdomain(){
-    grep -E -h -o '[-_[:alnum:]\.]+\.'${1} -r . \
+    grep -I -E -h -o '[-_[:alnum:]\.]+\.'${1} -r . \
         | sed 's/^32m//g' \
         | sed 's/^253A//g' \
         | sort | uniq
@@ -62,4 +68,16 @@ grepdomain(){
 grepsubdomain(){
     local domain=${1}
     grepdomain ${domain} | sed 's/.'${domain}'$//g'
+}
+upsert_in_file(){
+    local file="${1}"
+    shift
+    local inserts=("${@}")
+    if [[ ! -f ${file} ]]; then
+        touch ${file}
+    fi
+    for insert in "${inserts[@]}" ; do
+        grep -F -x "${insert}" "${file}" \
+            || echo "${insert}" >> "${file}"
+    done
 }
