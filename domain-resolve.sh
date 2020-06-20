@@ -7,11 +7,12 @@ CONCURRENCY=${2:-20}
 
 NMAP=/usr/local/bin/nmap
 RESOLVERS=$HOME/projects/sec/autoaim/resolvers.txt
-MASSDNS=$HOME/projects/sec/massdns/bin/massdns
+MASSDNS=$HOME/projects/sec/massdns
 FOLDER=data/domains/resolved
 SUBDOMAINIZER=$HOME/projects/sec/SubDomainizer/SubDomainizer.py
 
 source ${HOME}/projects/sec/autoaim/helpers.sh
+source ${HOME}/projects/sec/autoaim/persistence.sh
 
 mkdir -p ${FOLDER}
 
@@ -50,36 +51,6 @@ dig_axfr(){
         done
 }
 
-resolved_domains() {
-    local domain=${1}
-    shift
-    local wildcard_ips=("${@}")
-    local filename=a_${domain}.txt.gz
-    local filepath=${FOLDER}/${filename}
-    if [[ -f ${filepath} ]]; then
-        if [[ ${#wildcard_ips[@]} -ne 0 ]]; then
-            (
-                wildcard_grep="${wildcard_ips[*]/%/|}"
-                wildcard_grep="${wildcard_grep:0:-1}"
-                wildcard_grep="${wildcard_grep// /}"
-                zgrep -A7 NOERROR ${filepath} \
-                    | grep -B3 -P '(IN A (?!'"${wildcard_grep}"')|IN CNAME (?!'"${wildcard_grep}"'))' \
-                    | grep 'IN A$' \
-                    | cut -f1 -d' ' \
-                    | sort \
-                    | uniq
-                echo ${domain}.
-            ) || true | sort -u
-        else
-            zgrep -A7 NOERROR ${filepath} \
-                | grep -B3 -E 'IN (A|CNAME) ' \
-                | grep 'IN A$' \
-                | cut -f1 -d' ' \
-                | sort \
-                | uniq
-        fi
-    fi
-}
 noerror_domains(){
     local domain=${1}
     local filename=a_${domain}.txt.gz
@@ -139,28 +110,17 @@ massdns(){
     local type=${1}
     shift
     local domains=("${@}")
-    local output=${FOLDER}/${type,,}_${DOMAIN}.txt
-    $MASSDNS \
+    local output=${FOLDER}/${type,,}_${DOMAIN}.json
+    $MASSDNS/bin/massdns \
         -s ${CONCURRENCY} \
-        --retry SERVFAIL \
+        --retry SERVFAIL,REFUSED \
         -c 25 \
-        -o F \
+        -o J \
         -t ${type} \
         -r ${RESOLVERS} \
         -w ${output} \
         <(printf '%s\n' "${domains[@]}" | sort | uniq)
-    if [[ ${type} == 'A' ]]; then
-        if grep -q -e "IN ${type} " -e 'IN CNAME ' ${output}; then
-            grep -e "IN ${type} " -e 'IN CNAME ' ${output} \
-                 > ${FOLDER}/short_${type,,}_${DOMAIN}.txt
-        fi
-    else
-        if grep -q "IN ${type} " ${output}; then
-            grep "IN ${type} " ${output} \
-                 > ${FOLDER}/short_${type,,}_${DOMAIN}.txt
-        fi
-    fi
-    gzip --best -f ${output}
+    gzip -f ${output}
 }
 
 
@@ -208,50 +168,80 @@ remove_possible_wildcards_on_subdomains(){
 
 does_servfail(){
     local domain="${1}"
-    if dig @1.1.1.1 ${domain} A | grep SERVFAIL; then
+    if dig @8.8.8.8 "${domain}" A | grep SERVFAIL; then
         echo "SERVFAIL returned for ${domain} giving up"
-        echo ${domain} > data/domains/servfail
+        echo ${domain} > data/domains/resolved/servfail
         return 0
     fi
-    if dig @1.1.1.1 $(openssl rand -base64 32 | tr -dc 'a-z0-9' | fold -w16 | head -n1).${domain} A | grep SERVFAIL; then
+    if dig @8.8.8.8 "$(getrandsub).${domain}" A | grep SERVFAIL; then
         echo "SERVFAIL returned for ${domain} giving up"
-        echo ${domain} > data/domains/servfail_sub
+        echo ${domain} > data/domains/resolved/servfail_sub
         return 0
     fi
     return 1
 }
 
+massdns_result_a(){
+    jq -r '. |
+  select(.class == "IN") |
+  (.name|rtrimstr(".")) + " " + .status + " " +  if .data.answers then (.data.answers[] | select(.type == "A") .data) else " " end
+
+' < <(zcat data/domains/resolved/a_${DOMAIN}.json.gz)
+}
+
+resolved_ips() {
+    massdns_result_a | grep NOERROR | cut -f3 -d' ' | uncomment | sort -Vu
+}
+
+resolved_domains() {
+    local domain=${1}
+    shift
+    local wildcard_ips=("${@}")
+    massdns_result_a | while read -r domain status ip; do
+        if [[ $status != "NOERROR" || -z ${ip} ]]; then
+            continue
+        fi
+        if ! in_array "${ip}" "${wildcard_ips[@]}"; then
+            continue
+        fi
+        echo "${domain}"
+    done | sort -u
+}
+
 ###################################################
 
-# Gave up right away if root domain or subdomain returns SERVFAIL
-does_servfail "${DOMAIN}" && { echo "error: servfail"; exit 1; }
+initdb "${DOMAIN}"
 
-# ROOT Wildcard detection
-mapfile -t wildcard_ips < <(get_wildcards ${DOMAIN})
-if [[ ${#wildcard_ips[@]} -gt 0 ]]; then
-    printf '%s\n' "${wildcard_ips[@]}" > data/domains/wildcards_${DOMAIN}
-fi
+# Gave up right away if ROOT domain or subdomain returns SERVFAIL
+does_servfail "${DOMAIN}" && { echoerr "servfail"; exit 1; }
 
 # Adds RAW subdomains found in the same "project"
-subdomains=($({ grepsubdomain ${DOMAIN}; cat ../*/data/sub*; } | sort | uniq))
-subdomains=($(explode_domains "${subdomains[@]}" | sort | uniq))
-printf '%s\n' "${subdomains[@]}" > ${FOLDER}/raw_subdomains_${DOMAIN}.txt
-
-domains=("${subdomains[@]/%/.${DOMAIN}}") # append root domain
-domains+=("${DOMAIN}") # add back root domain
+mapfile -t domains < <({ grepsubdomain ${DOMAIN}; cat ../*/data/sub*; } \
+                           | sed 's#$#.'"${DOMAIN}"'#g' \
+                           | unify \
+                           | sed 's#$#.'"${DOMAIN}"'#g' \
+                           | purify)
+domains+=("${DOMAIN}") # add root domain
 
 notify-send -t 15000 \
             "Massdns A for ${DOMAIN}" \
             "of $(printfnumber ${#domains[@]}) subdomains..."
-#massdns A "${domains[@]}"
+
+massdns A "${domains[@]}"
 
 # Gather ips
-# TODO: CNAME domains are missing from IP gather
-if compgen -G data/domains/*/short_a_${DOMAIN}.txt; then
-    grep -F -h ${DOMAIN} data/domains/*/short_a_${DOMAIN}.txt \
-        | grep -F 'IN A ' \
-        | cut -f5 -d' ' | sort | uniq | sort -V \
-        | tee data/ips.txt
+if [[ -f data/domains/resolved/a_${DOMAIN}.json.gz ]]; then
+    massdns_result_a | add_dns_a ${DOMAIN}
+    resolved_ips     | add_ips   ${DOMAIN}
+    resolved_ips > data/ips.txt
+fi
+
+exit 1
+
+# ROOT Wildcard detection
+mapfile -t wildcard_ips < <(get_wildcards ${DOMAIN})
+if [[ ${#wildcard_ips[@]} -ne 0 ]]; then
+    printf '%s\n' "${wildcard_ips[@]}" > data/domains/resolved/wildcards
 fi
 
 # Gather resolved domains
