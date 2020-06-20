@@ -3,6 +3,9 @@
 #==================================================
 # Pure - Non env dependent
 #==================================================
+echoerr(){
+    echo "error: $*" 1>&2
+}
 trim(){ awk '{$1=$1};1' /dev/stdin; }
 printfnumber(){
     LC_NUMERIC=en_US printf "%'.f\n" "${1}"
@@ -10,7 +13,6 @@ printfnumber(){
 explode_domain(){
     local domain="${1}"
     local regex_dot='\.'
-    echo ${domain}
     if [[ $domain =~ $regex_dot ]]; then
         explode_domain "${domain#*.}"
     fi
@@ -32,6 +34,9 @@ in_array() {
     for e in "$@"; do [[ "$e" == "$word" ]] && return 0; done
     return 1
 }
+getrandsub(){
+    openssl rand -base64 32 | tr -dc 'a-z0-9' | fold -w16 | head -n1
+}
 #==================================================
 # Impure - Depends on network
 #==================================================
@@ -40,14 +45,13 @@ get_wildcards(){
     local ips=()
     # NOTE: increase and add more resolvers if more ips are needed
     for _ in {1..5}; do
-        random_sub=$(openssl rand -base64 32 | tr -dc 'a-z0-9' | fold -w16 | head -n1)
-        ips+=($(dig @1.1.1.1 +short "${random_sub}.${domain}"))
+        ips+=($(dig @8.8.8.8 +short "$(getrandsub).${domain}"))
     done
     if [[ ${#ips[@]} -eq 0 ]]; then
         return 1
     fi
     printf '%s\n' "${ips[@]}" \
-        | sort -d \
+        | sort -V \
         | uniq
 }
 is_port_open(){
@@ -60,14 +64,15 @@ is_port_open(){
 # Impure - Depends on file
 #==================================================
 grepdomain(){
-    grep -I -E -h -o '[-_[:alnum:]\.]+\.'${1} -r . \
+    local domain="${1}"
+    grep -I -E -h -o '[-_[:alnum:]\.]+\.'"${domain}" -r . \
         | sed 's/^32m//g' \
         | sed 's/^253A//g' \
         | sort | uniq
 }
 grepsubdomain(){
-    local domain=${1}
-    grepdomain ${domain} | sed 's/.'${domain}'$//g'
+    local domain="${1}"
+    grepdomain "${domain}" | sed 's/.'"${domain}"'$//g'
 }
 upsert_in_file(){
     local file="${1}"
@@ -80,4 +85,7 @@ upsert_in_file(){
         grep -F -x "${insert}" "${file}" \
             || echo "${insert}" >> "${file}"
     done
+}
+grepip(){
+    grep -E -o "(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)" /dev/stdin
 }
