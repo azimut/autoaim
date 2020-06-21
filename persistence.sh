@@ -155,21 +155,21 @@ WHERE NOT EXISTS (
 add_ips() {
     local ret=""
     while read -r ip; do ret+="CALL insert_ip('${ip}');"; done
-    echo "${ret}" | psql -U postgres
+    echo "${ret}" | psql -U postgres | grep -c CALL || true
 }
 add_ips_up() {
     local ret=""
     while read -r ip; do ret+="CALL insert_downip('${ip}');"; done
-    echo "${ret}" | psql -U postgres
+    echo "${ret}" | psql -U postgres | grep -c CALL || true
 }
 add_ips_down() {
     local ret=""
     while read -r ip; do ret+="CALL insert_downip('${ip}');"; done
-    echo "${ret}" | psql -U postgres
+    echo "${ret}" | psql -U postgres | grep -c CALL || true
 }
 get_ips_up(){
     local root="${1}"
-    echo "CALL get_ips();" | psql -U postgres
+    echo "CALL get_ips();" | psql -U postgres | grep -c CALL || true
 }
 #------------------------------
 add_dns_a(){
@@ -177,14 +177,13 @@ add_dns_a(){
     local ret=""
     while read -r domain rcode ip; do
         if [[ -z ${ip} ]]; then
-            ret+="CALL add_dns_a('${domain}','${root}''${rcode}',NULL);"
+            ret+="CALL add_dns_a('${domain}','${root}','${rcode}',NULL);"
         else
             ret+="CALL add_dns_a('${domain}','${root}','${rcode}','${ip}');"
         fi
     done
-    echo -n "${ret}" | psql -U postgres | grep -c CALL
+    echo -n "${ret}" | psql -U postgres | grep -c CALL || true
 }
-
 dns_nxdomain(){
     local root="${1}"
     echo "SELECT name FROM dns_a
@@ -201,8 +200,43 @@ rm_nxdomain(){
     local root="${1}"
     grep -v -f <(dns_nxdomain "${root}") < /dev/stdin
 }
+#------------------------------
+resolved_hosts(){
+    local root="${1}"
+    echo "SELECT name, ip
+          FROM dns_a
+          WHERE root='${root}' AND rcode='NOERROR'
+          GROUP BY name, ip" | psql -U postgres -t -A
+}
+resolved_domains(){
+    local root="${1}"
+    echo "SELECT name
+          FROM dns_a
+          WHERE root='${root}' AND rcode='NOERROR'
+          GROUP BY name" | psql -U postgres -t -A
+}
 
-if [[ $_ == "$0" ]]; then
-    cleardb
-    initdb
-fi
+resolved_ips(){
+    local root="${1}"
+    echo "SELECT ip
+          FROM dns_a
+          WHERE root='${root}' AND rcode='NOERROR'
+          GROUP BY ip" | psql -U postgres -t -A
+}
+#------------------------------
+dns_add_wildcard(){
+    local root="${1}"
+    local ret=""
+    while read -r subdomain ip; do
+        ret+="CALL add_wildcard('${subdomain}','${root}', '${ip}');
+"
+    done
+    echo "${ret}" | psql -U postgres | grep -c CALL || true
+}
+resolved_domains_nowildcard(){
+    local root="${1}"
+    echo "SELECT d.name
+          FROM dns_a d, dns_a_wildcard w
+          WHERE d.root='${root}' AND w.root='${root}' AND d.ip!=w.ip
+          GROUP BY d.name" | psql -U postgres -t -A
+}
