@@ -11,8 +11,8 @@ MASSDNS=$HOME/projects/sec/massdns
 FOLDER=data/domains/resolved
 SUBDOMAINIZER=$HOME/projects/sec/SubDomainizer/SubDomainizer.py
 
-source ${HOME}/projects/sec/autoaim/helpers.sh
-source ${HOME}/projects/sec/autoaim/persistence.sh
+. ${HOME}/projects/sec/autoaim/helpers.sh
+. ${HOME}/projects/sec/autoaim/persistence.sh
 
 mkdir -p ${FOLDER}
 
@@ -123,49 +123,6 @@ massdns(){
     gzip -f ${output}
 }
 
-
-get_subdomains_atom(){
-    local domain="${1}"
-    shift
-    local domains=("${@}")
-    printf '%s\n' "${domains[@]}" \
-        | sed 's#'"${domain}"'.$##g' \
-        | rev \
-        | cut -f2 -d. \
-        | rev
-}
-get_most_frequent_subdomains(){
-    local domain="${1}"
-    shift
-    local domains=("${@}")
-    get_subdomains_atom "${domain}" "${domains[@]}" \
-        | sort \
-        | uniq -c |
-        while read -r num sub; do
-            if [[ $num -ge 60 ]]; then
-                echo ${sub}
-            fi
-        done | sed 's#$#'".${domain}."'#g'
-}
-remove_possible_wildcards_on_subdomains(){
-    local domain="${1}"
-    shift
-    local domains=("${@}")
-    local frequents=($(get_most_frequent_subdomains "${domain}" "${domains[@]}"))
-    for domain in "${domains[@]}"; do
-        wildcard=no
-        for frequent in "${frequents[@]}"; do
-            if [[ $domain == *${frequent}* ]]; then
-                wildcard=yes
-            fi
-        done
-        if [[ $wildcard == "no" ]]; then
-            echo ${domain}
-        fi
-    done
-    printf '%s\n' "${frequents[@]}"
-}
-
 does_servfail(){
     local domain="${1}"
     if dig @8.8.8.8 "${domain}" A | grep SERVFAIL; then
@@ -181,36 +138,17 @@ does_servfail(){
     return 1
 }
 
-massdns_result_a(){
+# TODO: add CNAME in massdns query
+massdns_result(){
+    local record="${1}"
     jq -r '. |
   select(.class == "IN") |
-  (.name|rtrimstr(".")) + " " + .status + " " +  if .data.answers then (.data.answers[] | select(.type == "A") .data) else " " end
+  (.name|rtrimstr(".")) + " " + .status + " " +  if .data.answers then (.data.answers[] | select(.type == "'${record^^}'") .data) else " " end
 
-' < <(zcat data/domains/resolved/a_${DOMAIN}.json.gz)
-}
-
-resolved_ips() {
-    massdns_result_a | grep NOERROR | cut -f3 -d' ' | uncomment | sort -Vu
-}
-
-resolved_domains() {
-    local domain=${1}
-    shift
-    local wildcard_ips=("${@}")
-    massdns_result_a | while read -r domain status ip; do
-        if [[ $status != "NOERROR" || -z ${ip} ]]; then
-            continue
-        fi
-        if ! in_array "${ip}" "${wildcard_ips[@]}"; then
-            continue
-        fi
-        echo "${domain}"
-    done | sort -u
+' < <(zcat data/domains/resolved/${record,,}_${DOMAIN}.json.gz)
 }
 
 ###################################################
-
-initdb "${DOMAIN}"
 
 # Gave up right away if ROOT domain or subdomain returns SERVFAIL
 does_servfail "${DOMAIN}" && { echoerr "servfail"; exit 1; }
@@ -220,7 +158,10 @@ mapfile -t domains < <({ grepsubdomain ${DOMAIN}; cat ../*/data/sub*; } \
                            | sed 's#$#.'"${DOMAIN}"'#g' \
                            | unify \
                            | sed 's#$#.'"${DOMAIN}"'#g' \
-                           | purify)
+                           | rm_nxdomain ${DOMAIN} \
+                           | purify \
+                           | grep -F ${DOMAIN} \
+                           | rm_nxdomain ${DOMAIN})
 domains+=("${DOMAIN}") # add root domain
 
 notify-send -t 15000 \
@@ -231,24 +172,18 @@ massdns A "${domains[@]}"
 
 # Gather ips
 if [[ -f data/domains/resolved/a_${DOMAIN}.json.gz ]]; then
-    massdns_result_a | add_dns_a ${DOMAIN}
-    resolved_ips     | add_ips   ${DOMAIN}
-    resolved_ips > data/ips.txt
+    massdns_result 'A'       | add_dns_a ${DOMAIN}
+    resolved_ips "${DOMAIN}" | add_ips
+    resolved_ips "${DOMAIN}" > data/ips.txt
 fi
 
-exit 1
+#exit 1
 
-# ROOT Wildcard detection
-mapfile -t wildcard_ips < <(get_wildcards ${DOMAIN})
-if [[ ${#wildcard_ips[@]} -ne 0 ]]; then
-    printf '%s\n' "${wildcard_ips[@]}" > data/domains/resolved/wildcards
-fi
+resolved_domains "${DOMAIN}" \
+    | wildify \
+    | dns_add_wildcard "${DOMAIN}"
 
-# Gather resolved domains
-mapfile -t domains < <(resolved_domains ${DOMAIN} "${wildcard_ips[@]}")
-mapfile -t domains < <(remove_possible_wildcards_on_subdomains ${DOMAIN} "${domains[@]}")
-
-printf '%s\n' "${domains[@]}" > data/domains/resolved/resolved.txt
+#mapfile -t domains < <(resolved_domains_nowildcard ${DOMAIN})
 
 # If any NOERROR, try other records
 if [[ ${#domains[@]} -gt 0 ]]; then
@@ -258,6 +193,10 @@ if [[ ${#domains[@]} -gt 0 ]]; then
     massdns TXT   "${domains[@]}"
 fi
 # TODO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
+
+massdns_result 'AAAA' | add_dns_aaaa "${DOMAIN}"
+
+exit 1
 
 # Work on domains with NS servers
 if compgen -G data/domains/resolved/short_ns_*; then
