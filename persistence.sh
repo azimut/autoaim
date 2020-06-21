@@ -19,12 +19,6 @@ DROP TABLE IF EXISTS dns_a_wildcard;
 DROP TABLE IF EXISTS dns_a;
 DROP TABLE IF EXISTS ${IP_DATA};
 DROP TABLE IF EXISTS ${IP_HISTORY};
-DROP PROCEDURE IF EXISTS add_wildcard;
-DROP PROCEDURE IF EXISTS get_ips_up;
-DROP PROCEDURE IF EXISTS add_dns_a;
-DROP PROCEDURE IF EXISTS insert_ip;
-DROP PROCEDURE IF EXISTS insert_upip;
-DROP PROCEDURE IF EXISTS insert_downip;
 " | psql -U postgres
 }
 
@@ -43,6 +37,13 @@ CREATE TABLE IF NOT EXISTS dns_a(
     rcode     VARCHAR(32) NOT NULL,
     ip        INET
 );
+CREATE TABLE IF NOT EXISTS dns_aaaa(
+    name      VARCHAR(256) NOT NULL,
+    root      VARCHAR(256) NOT NULL,
+    timestamp TIMESTAMP DEFAULT NOW(),
+    rcode     VARCHAR(32) NOT NULL,
+    ip        INET
+);
 
 CREATE TABLE IF NOT EXISTS ${IP_DATA}(
     ip   INET PRIMARY KEY NOT NULL,
@@ -54,11 +55,12 @@ CREATE TABLE IF NOT EXISTS ${IP_HISTORY}(
     timestamp TIMESTAMP DEFAULT NOW(),
     is_up     BOOLEAN
 );
-
 --------------------
-CREATE PROCEDURE add_wildcard(newbase varchar(256),
-                              newroot varchar(256),
-                              newip   inet)
+--------------------
+DROP PROCEDURE IF EXISTS add_wildcard;
+CREATE PROCEDURE add_wildcard(newbase VARCHAR,
+                              newroot VARCHAR,
+                              newip   INET)
 LANGUAGE SQL
 AS \$$
 INSERT INTO dns_a_wildcard(base, root, ip)
@@ -71,6 +73,7 @@ INSERT INTO dns_a_wildcard(base, root, ip)
       AND ip=newip);
 \$$;
 --------------------
+DROP PROCEDURE IF EXISTS get_ips_up;
 CREATE PROCEDURE get_ips_up()
 LANGUAGE SQL
 AS \$$
@@ -84,10 +87,11 @@ WHERE original.timestamp=recent.mtime
   AND original.is_up=true;
 \$$;
 --------------------
-CREATE PROCEDURE add_dns_a(newdomain varchar(256),
-                           newroot   varchar(256),
-                           newrcode  varchar(32),
-                           newip     inet)
+DROP PROCEDURE IF EXISTS add_dns_a;
+CREATE PROCEDURE add_dns_a(newdomain VARCHAR,
+                           newroot   VARCHAR,
+                           newrcode  VARCHAR,
+                           newip     INET)
 LANGUAGE SQL
 AS \$$
 INSERT INTO dns_a(name, root, rcode, ip)
@@ -100,8 +104,26 @@ WHERE NOT EXISTS (
     AND rcode=newrcode
     AND ip=newip);
 \$$;
+DROP PROCEDURE IF EXISTS add_dns_aaaa;
+CREATE PROCEDURE add_dns_aaaa(newdomain VARCHAR,
+                              newroot   VARCHAR,
+                              newrcode  VARCHAR,
+                              newip     INET)
+LANGUAGE SQL
+AS \$$
+INSERT INTO dns_aaaa(name, root, rcode, ip)
+SELECT newdomain, newroot,  newrcode, newip
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM dns_aaaa
+    WHERE name=newdomain
+    AND root=newroot
+    AND rcode=newrcode
+    AND ip=newip);
+\$$;
 --------------------
-CREATE PROCEDURE insert_ip(newip inet)
+DROP PROCEDURE IF EXISTS insert_ip;
+CREATE PROCEDURE insert_ip(newip INET)
 LANGUAGE SQL
 AS \$$
 INSERT INTO ${IP_HISTORY}(ip)
@@ -112,7 +134,8 @@ WHERE NOT EXISTS (
     WHERE ip=newip);
 \$$;
 --------------------
-CREATE PROCEDURE insert_upip(newip inet)
+DROP PROCEDURE IF EXISTS insert_upip;
+CREATE PROCEDURE insert_upip(newip INET)
 LANGUAGE SQL
 AS \$$
 INSERT INTO ${IP_HISTORY}(ip,is_up)
@@ -130,7 +153,8 @@ WHERE NOT EXISTS (
     AND recent.maxtime=original.timestamp
     AND original.is_up=true);
 \$$;
-CREATE PROCEDURE insert_downip(newip inet)
+DROP PROCEDURE IF EXISTS insert_downip;
+CREATE PROCEDURE insert_downip(newip INET)
 LANGUAGE SQL
 AS \$$
 INSERT INTO ${IP_HISTORY}(ip,is_up)
@@ -184,6 +208,18 @@ add_dns_a(){
     done
     echo -n "${ret}" | psql -U postgres | grep -c CALL || true
 }
+add_dns_aaaa(){
+    local root="${1}"
+    local ret=""
+    while read -r domain rcode ip; do
+        if [[ -z ${ip} ]]; then
+            ret+="CALL add_dns_aaaa('${domain}','${root}','${rcode}',NULL);"
+        else
+            ret+="CALL add_dns_aaaa('${domain}','${root}','${rcode}','${ip}');"
+        fi
+    done
+    echo -n "${ret}" | psql -U postgres | grep -c CALL || true
+}
 dns_nxdomain(){
     local root="${1}"
     echo "SELECT name FROM dns_a
@@ -215,7 +251,6 @@ resolved_domains(){
           WHERE root='${root}' AND rcode='NOERROR'
           GROUP BY name" | psql -U postgres -t -A
 }
-
 resolved_ips(){
     local root="${1}"
     echo "SELECT ip
