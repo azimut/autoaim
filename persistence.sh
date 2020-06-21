@@ -1,110 +1,149 @@
 #!/bin/bash
 
 # TODO: IPs might be should be global (not per schema)
-
+# TODO: save subdomain, domain and SLD+TLD separate
 set -xu
 
 IP_HISTORY='ip_history'
 IP_DATA='ip_data'
 
+parse(){
+    local domain="${1}"
+    domain="${domain//./_}"
+    echo "${domain}"
+}
+
 cleardb(){
-    local dbname
-    dbname="$(parse ${1})"
-    echo "DROP SCHEMA ${dbname} CASCADE" | psql -U postgres
+    echo "
+DROP TABLE IF EXISTS dns_a_wildcard;
+DROP TABLE IF EXISTS dns_a;
+DROP TABLE IF EXISTS ${IP_DATA};
+DROP TABLE IF EXISTS ${IP_HISTORY};
+DROP PROCEDURE IF EXISTS add_wildcard;
+DROP PROCEDURE IF EXISTS get_ips_up;
+DROP PROCEDURE IF EXISTS add_dns_a;
+DROP PROCEDURE IF EXISTS insert_ip;
+DROP PROCEDURE IF EXISTS insert_upip;
+DROP PROCEDURE IF EXISTS insert_downip;
+" | psql -U postgres
 }
 
 initdb(){
-    local dbname
-    dbname="$(parse ${1})"
     template="""
-CREATE SCHEMA IF NOT EXISTS ${dbname};
-
-CREATE TABLE IF NOT EXISTS ${dbname}.dns_a(
-    name      VARCHAR(256) NOT NULL,
+CREATE TABLE IF NOT EXISTS dns_a_wildcard(
+    base      VARCHAR(256) NOT NULL,
+    root      VARCHAR(256) NOT NULL,
     timestamp TIMESTAMP DEFAULT NOW(),
-    rcode     VARCHAR(32),
-    ip        INET NOT NULL
+    ip        INET
 );
-CREATE TABLE IF NOT EXISTS ${dbname}.${IP_DATA}(
+CREATE TABLE IF NOT EXISTS dns_a(
+    name      VARCHAR(256) NOT NULL,
+    root      VARCHAR(256) NOT NULL,
+    timestamp TIMESTAMP DEFAULT NOW(),
+    rcode     VARCHAR(32) NOT NULL,
+    ip        INET
+);
+
+CREATE TABLE IF NOT EXISTS ${IP_DATA}(
     ip   INET PRIMARY KEY NOT NULL,
     cidr CIDR,
     asn  VARCHAR(256)
 );
-CREATE TABLE IF NOT EXISTS ${dbname}.${IP_HISTORY}(
+CREATE TABLE IF NOT EXISTS ${IP_HISTORY}(
     ip        INET NOT NULL,
     timestamp TIMESTAMP DEFAULT NOW(),
     is_up     BOOLEAN
 );
+
 --------------------
-DROP PROCEDURE IF EXISTS get_ips_up;
+CREATE PROCEDURE add_wildcard(newbase varchar(256),
+                              newroot varchar(256),
+                              newip   inet)
+LANGUAGE SQL
+AS \$$
+INSERT INTO dns_a_wildcard(base, root, ip)
+  SELECT newbase, newroot, newip
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM dns_a_wildcard
+    WHERE base=newbase
+      AND root=newroot
+      AND ip=newip);
+\$$;
+--------------------
 CREATE PROCEDURE get_ips_up()
 LANGUAGE SQL
 AS \$$
 SELECT recent.ip FROM (
   SELECT ip, max(timestamp) as mtime
-  FROM ${dbname}.${IP_HISTORY}
+  FROM ${IP_HISTORY}
   GROUP BY ip) recent,
-  ${dbname}.${IP_HISTORY} original
+  ${IP_HISTORY} original
 WHERE original.timestamp=recent.mtime
   AND original.ip=recent.ip
   AND original.is_up=true;
 \$$;
-
-DROP PROCEDURE IF EXISTS add_dns_a;
-CREATE PROCEDURE add_dns_a(newdomain varchar(256), newip inet)
+--------------------
+CREATE PROCEDURE add_dns_a(newdomain varchar(256),
+                           newroot   varchar(256),
+                           newrcode  varchar(32),
+                           newip     inet)
 LANGUAGE SQL
 AS \$$
-INSERT INTO ${dbname}.dns_a(name, ip)
-  SELECT newdomain, newip
-  WHERE NOT EXISTS (SELECT 1 FROM ${dbname}.dns_a WHERE name=newdomain AND ip=newip);
+INSERT INTO dns_a(name, root, rcode, ip)
+SELECT newdomain, newroot,  newrcode, newip
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM dns_a
+    WHERE name=newdomain
+    AND root=newroot
+    AND rcode=newrcode
+    AND ip=newip);
 \$$;
-
-DROP PROCEDURE IF EXISTS insert_ip;
+--------------------
 CREATE PROCEDURE insert_ip(newip inet)
 LANGUAGE SQL
 AS \$$
-INSERT INTO ${dbname}.${IP_HISTORY}(ip)
-  SELECT newip
-  WHERE NOT EXISTS (
+INSERT INTO ${IP_HISTORY}(ip)
+SELECT newip
+WHERE NOT EXISTS (
     SELECT 1
-    FROM ${dbname}.${IP_HISTORY}
+    FROM ${IP_HISTORY}
     WHERE ip=newip);
 \$$;
 --------------------
-DROP PROCEDURE IF EXISTS insert_upip;
 CREATE PROCEDURE insert_upip(newip inet)
 LANGUAGE SQL
 AS \$$
-INSERT INTO ${dbname}.${IP_HISTORY}(ip,is_up)
-  SELECT newip, true
-  WHERE NOT EXISTS (
+INSERT INTO ${IP_HISTORY}(ip,is_up)
+SELECT newip, true
+WHERE NOT EXISTS (
     SELECT 1
     FROM (
-      SELECT ip, max(timestamp) as maxtime
-      FROM ${dbname}.${IP_HISTORY}
-      WHERE ip=newip
-      GROUP BY ip
+        SELECT ip, max(timestamp) as maxtime
+        FROM ${IP_HISTORY}
+        WHERE ip=newip
+        GROUP BY ip
     ) recent,
-    ${dbname}.${IP_HISTORY} original
+    ${IP_HISTORY} original
     WHERE original.ip=recent.ip
     AND recent.maxtime=original.timestamp
     AND original.is_up=true);
 \$$;
-DROP PROCEDURE IF EXISTS insert_downip;
 CREATE PROCEDURE insert_downip(newip inet)
 LANGUAGE SQL
 AS \$$
-INSERT INTO ${dbname}.${IP_HISTORY}(ip,is_up)
-  SELECT newip, false
-  WHERE NOT EXISTS (
+INSERT INTO ${IP_HISTORY}(ip,is_up)
+SELECT newip, false
+WHERE NOT EXISTS (
     SELECT 1
     FROM (
-      SELECT ip, max(timestamp) as maxtime
-      FROM ${dbname}.${IP_HISTORY}
-      WHERE ip=newip
-      GROUP BY ip
+        SELECT ip, max(timestamp) as maxtime
+        FROM ${IP_HISTORY}
+        WHERE ip=newip
+        GROUP BY ip
     ) recent,
-    ${dbname}.${IP_HISTORY} original
+    ${IP_HISTORY} original
     WHERE original.ip=recent.ip
     AND recent.maxtime=original.timestamp
     AND original.is_up=false);
@@ -112,51 +151,58 @@ INSERT INTO ${dbname}.${IP_HISTORY}(ip,is_up)
 """
     echo "${template}" | psql -U postgres
 }
-
+#------------------------------
 add_ips() {
-    local dbname
-    dbname="$(parse ${1})"
     local ret=""
     while read -r ip; do ret+="CALL insert_ip('${ip}');"; done
     echo "${ret}" | psql -U postgres
 }
-
 add_ips_up() {
-    local dbname
-    dbname="$(parse ${1})"
     local ret=""
     while read -r ip; do ret+="CALL insert_downip('${ip}');"; done
     echo "${ret}" | psql -U postgres
 }
-
 add_ips_down() {
-    local dbname
-    dbname="$(parse ${1})"
     local ret=""
     while read -r ip; do ret+="CALL insert_downip('${ip}');"; done
     echo "${ret}" | psql -U postgres
 }
-
 get_ips_up(){
-    local dbname
-    dbname="$(parse ${1})"
+    local root="${1}"
     echo "CALL get_ips();" | psql -U postgres
 }
-
+#------------------------------
 add_dns_a(){
+    local root="${1}"
     local ret=""
-    while read -r domain ip; do
-        ret+="CALL add_dns_a('${domain}','${ip}')"
+    while read -r domain rcode ip; do
+        if [[ -z ${ip} ]]; then
+            ret+="CALL add_dns_a('${domain}','${root}''${rcode}',NULL);"
+        else
+            ret+="CALL add_dns_a('${domain}','${root}','${rcode}','${ip}');"
+        fi
     done
+    echo -n "${ret}" | psql -U postgres | grep -c CALL
 }
 
-parse(){
-    domain="${1}"
-    domain="${domain//./_}"
-    echo "${domain}"
+dns_nxdomain(){
+    local root="${1}"
+    echo "SELECT name FROM dns_a
+    WHERE rcode='NXDOMAIN' AND root='${root}'" | psql -U postgres -t -A
+}
+
+dns_noerror(){
+    local root="${1}"
+    echo "SELECT name FROM dns_a
+    WHERE rcode='NOERROR' AND root='${root}'" | psql -U postgres -t -A
+}
+
+rm_nxdomain(){
+    local root="${1}"
+    grep -v -f <(dns_nxdomain "${root}") < /dev/stdin
 }
 
 if [[ $_ == "$0" ]]; then
-    cleardb "${1}"
-    initdb  "${1}"
+    cleardb
+    initdb
 fi
