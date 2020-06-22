@@ -8,7 +8,7 @@ CONCURRENCY=${2:-20}
 NMAP=/usr/local/bin/nmap
 RESOLVERS=$HOME/projects/sec/autoaim/resolvers.txt
 MASSDNS=$HOME/projects/sec/massdns
-FOLDER=data/domains/resolved
+FOLDER=domains/resolved
 SUBDOMAINIZER=$HOME/projects/sec/SubDomainizer/SubDomainizer.py
 
 . ${HOME}/projects/sec/autoaim/helpers.sh
@@ -49,18 +49,6 @@ dig_axfr(){
                 dig @${ip} ${domain} AXFR 2>&1 | tee ${file}
             fi
         done
-}
-
-noerror_domains(){
-    local domain=${1}
-    local filename=a_${domain}.txt.gz
-    local filepath=${FOLDER}/${filename}
-    if [[ -f ${filepath} ]]; then
-        zgrep -A7 NOERROR ${filepath} \
-            | grep -B7 'IN SOA' \
-            | grep 'IN A' \
-            | cut -f1 -d' '
-    fi
 }
 graph_trusttrees(){
     local domain=${1}
@@ -128,12 +116,12 @@ does_servfail(){
     local domain="${1}"
     if dig @8.8.8.8 "${domain}" A | grep SERVFAIL; then
         echo "SERVFAIL returned for ${domain} giving up"
-        echo ${domain} > data/domains/resolved/servfail
+        echo ${domain} > domains/resolved/servfail
         return 0
     fi
     if dig @8.8.8.8 "$(getrandsub).${domain}" A | grep SERVFAIL; then
         echo "SERVFAIL returned for ${domain} giving up"
-        echo ${domain} > data/domains/resolved/servfail_sub
+        echo ${domain} > domains/resolved/servfail_sub
         return 0
     fi
     return 1
@@ -142,7 +130,7 @@ does_servfail(){
 # TODO: add CNAME in massdns query
 massdns_result(){
     local record="${1}"
-    local file=data/domains/resolved/${record,,}_${DOMAIN}.json.gz
+    local file=domains/resolved/${record,,}_${DOMAIN}.json.gz
     local filter=""
     filter=' . | select(.class == "IN")'
     filter+='  | (.name|rtrimstr("."))'
@@ -159,7 +147,7 @@ massdns_result(){
 does_servfail "${DOMAIN}" && { echoerr "servfail"; exit 1; }
 
 # Adds RAW subdomains found in the same "project"
-mapfile -t domains < <({ grepsubdomain ${DOMAIN}; getsubs; } \
+mapfile -t domains < <({ grepsubdomain ${DOMAIN}; get_subs; } \
                            | sed 's#$#.'"${DOMAIN}"'#g' \
                            | unify \
                            | sed 's#$#.'"${DOMAIN}"'#g' \
@@ -177,18 +165,18 @@ notify-send -t 15000 \
 massdns A "${domains[@]}"
 
 # Gather ips
-if [[ -f data/domains/resolved/a_${DOMAIN}.json.gz ]]; then
+if [[ -f domains/resolved/a_${DOMAIN}.json.gz ]]; then
     resolved_ips "${DOMAIN}" | add_ips
-    resolved_ips "${DOMAIN}" > data/ips.txt
+    resolved_ips "${DOMAIN}" > ips.txt
 fi
 
-#exit 1
-
+# Load wildcards
 resolved_domains "${DOMAIN}" \
     | wildify \
     | dns_add_wildcard "${DOMAIN}"
 
-#mapfile -t domains < <(resolved_domains_nowildcard ${DOMAIN})
+# Remove wildcards
+mapfile -t domains < <(resolved_domains_nowildcard ${DOMAIN})
 
 # If any NOERROR, try other records
 if [[ ${#domains[@]} -gt 0 ]]; then
@@ -199,8 +187,6 @@ if [[ ${#domains[@]} -gt 0 ]]; then
 fi
 # TODO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
 
-#exit 1
-
 # Work on domains with NS servers
 dns_ns "${DOMAIN}" |
     while IFS='|' read -r domain ns; do
@@ -209,23 +195,11 @@ dns_ns "${DOMAIN}" |
         nmap_nsec        ${domain} ${ns}
     done
 
-exit 1
-
+# TODO: do port 443
 # Work on resolved domains
-printf '%s\n' "${domains[@]}" | uncomment |
-    while read -r domain; do
-        if is_port_open 80 ${domain}; then
-            hakrawler     ${domain}
-            subdomainizer ${domain}
-        fi
-    done
-
-# Show Domains that NOERROR that could be bruteforced down
-# rm -f data/domains/noerror
-# for ndomain in $(noerror_domains ${DOMAIN}); do
-#     if grep -q ${ndomain} <(printf '%s\n' "${domains[@]}"); then
-#         continue
-#     else
-#         echo ${ndomain} | tee -a data/domains/noerror
-#     fi
-# done
+for domain in "${domains[@]}"; do
+    if is_port_open 80 ${domain}; then
+        hakrawler     ${domain}
+        subdomainizer ${domain}
+    fi
+done

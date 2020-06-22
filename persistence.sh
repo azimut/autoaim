@@ -274,6 +274,19 @@ dns_cname() {
             AND rtype='CNAME'
           GROUP BY data" | psql -U postgres -t -A
 }
+# TODO: needs to check for already know subdomains might be
+# Things that return NOERROR, either:
+# - dangling empty record
+# - record with hidden subdomains
+dns_weird(){
+    echo "SELECT name
+          FROM dns_record
+          WHERE rcode='NOERROR'
+            AND data IS NULL
+            AND ip   IS NULL
+            AND qtype='A'
+          ORDER BY name ASC;" | psql -U postgres -t -A
+}
 rm_nxdomain(){
     local root="${1}"
     grep -v -f <(dns_nxdomain "${root}") < /dev/stdin
@@ -317,18 +330,38 @@ dns_add_wildcard(){
     local root="${1}"
     local ret=""
     while read -r subdomain ip; do
-        ret+="CALL add_wildcard('${subdomain}','${root}', '${ip}');
-"
+        ret+="CALL add_wildcard('${subdomain}','${root}', '${ip}');"
+        ret+=$'\n'
     done
     echo "${ret}" | psql -U postgres | grep -c CALL || true
 }
+# TODO: check if domain is on subdomain of wildcard subdomains...
 resolved_domains_nowildcard(){
     local root="${1}"
-    echo "SELECT d.name
-          FROM dns_record d, dns_a_wildcard w
-          WHERE d.qtype='A' AND d.ip IS NOT NULL
-            AND d.root='${root}'
-            AND w.root='${root}'
-            AND d.ip!=w.ip
-          GROUP BY d.name" | psql -U postgres -t -A
+    echo "SELECT reduced.name
+          FROM (SELECT d.name, d.ip
+                FROM dns_record d
+                WHERE d.root='${root}'
+                  AND d.qtype='A'
+                  AND d.rcode='NOERROR'
+                  AND d.ip IS NOT NULL) reduced
+          LEFT JOIN dns_a_wildcard w
+              ON  reduced.ip=w.ip
+              AND reduced.name!=w.base
+              AND SUBSTR(reduced.name,LENGTH(reduced.name)-LENGTH(w.base)+1)=w.base
+          WHERE w.ip IS NULL
+" | psql -U postgres -t -A
 }
+
+# "SELECT reduced.name, reduced.ip
+#           FROM (SELECT d.name, d.ip
+#           FROM dns_record d
+#           WHERE d.root='${root}'
+#             AND d.qtype='A'
+#             AND d.rcode='NOERROR'
+#             AND d.ip IS NOT NULL) reduced
+#           RIGHT JOIN dns_a_wildcard w
+#               ON reduced.ip=w.ip
+#               AND w.ip IS NOT NULL
+#               AND reduced.ip IS NOT NULL
+#               AND reduced.name!=w.base"
