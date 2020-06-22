@@ -7,12 +7,6 @@ set -xu
 IP_HISTORY='ip_history'
 IP_DATA='ip_data'
 
-parse(){
-    local domain="${1}"
-    domain="${domain//./_}"
-    echo "${domain}"
-}
-
 cleardb(){
     echo "
 DROP TABLE IF EXISTS dns_a_wildcard;
@@ -59,7 +53,7 @@ CREATE PROCEDURE add_wildcard(newbase VARCHAR,
 LANGUAGE SQL
 AS \$$
 INSERT INTO dns_a_wildcard(base, root, ip)
-  SELECT newbase, newroot, newip
+  SELECT LOWER(newbase), LOWER(newroot), newip
   WHERE NOT EXISTS (
     SELECT 1
     FROM dns_a_wildcard
@@ -82,24 +76,6 @@ WHERE original.timestamp=recent.mtime
   AND original.is_up=true;
 \$$;
 --------------------
-DROP PROCEDURE IF EXISTS add_dns(varchar,varchar,varchar);
-DROP PROCEDURE IF EXISTS add_dns(varchar,varchar,varchar,varchar);
-CREATE PROCEDURE add_dns(newdomain VARCHAR,
-                         newroot   VARCHAR,
-                         newqtype  VARCHAR,
-                         newrcode  VARCHAR)
-LANGUAGE SQL
-AS \$$
-INSERT INTO dns_record(name, root, qtype, rcode)
-SELECT newdomain, newroot, newqtype, newrcode
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM dns_record
-    WHERE name=newdomain
-    AND root=newroot
-    AND newqtype=newqtype);
-\$$;
-
 DROP PROCEDURE IF EXISTS add_dns(varchar,varchar,varchar,varchar,varchar,varchar);
 CREATE PROCEDURE add_dns(newdomain VARCHAR,
                          newroot   VARCHAR,
@@ -110,7 +86,7 @@ CREATE PROCEDURE add_dns(newdomain VARCHAR,
 LANGUAGE SQL
 AS \$$
 INSERT INTO dns_record(name, root, qtype, rtype, rcode, data)
-SELECT newdomain, newroot, newqtype, newrtype, newrcode, newdata
+SELECT LOWER(newdomain), LOWER(newroot), UPPER(newqtype), newrtype, newrcode, newdata
 WHERE NOT EXISTS (
     SELECT 1
     FROM dns_record
@@ -129,7 +105,7 @@ CREATE PROCEDURE add_dns(newdomain VARCHAR,
 LANGUAGE SQL
 AS \$$
 INSERT INTO dns_record(name, root, qtype, rtype, rcode, ip)
-SELECT newdomain, newroot, newqtype, newrtype, newrcode, newip
+SELECT LOWER(newdomain), LOWER(newroot), UPPER(newqtype), newrtype, newrcode, newip
 WHERE NOT EXISTS (
     SELECT 1
     FROM dns_record
