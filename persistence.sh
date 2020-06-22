@@ -62,20 +62,6 @@ INSERT INTO dns_a_wildcard(base, root, ip)
       AND ip=newip);
 \$$;
 --------------------
-DROP PROCEDURE IF EXISTS get_ips_up;
-CREATE PROCEDURE get_ips_up()
-LANGUAGE SQL
-AS \$$
-SELECT recent.ip FROM (
-  SELECT ip, max(timestamp) as mtime
-  FROM ${IP_HISTORY}
-  GROUP BY ip) recent,
-  ${IP_HISTORY} original
-WHERE original.timestamp=recent.mtime
-  AND original.ip=recent.ip
-  AND original.is_up=true;
-\$$;
---------------------
 DROP PROCEDURE IF EXISTS add_dns(varchar,varchar,varchar,varchar,varchar,varchar);
 CREATE PROCEDURE add_dns(newdomain VARCHAR,
                          newroot   VARCHAR,
@@ -186,7 +172,45 @@ add_ips_down() {
 }
 get_ips_up(){
     local root="${1}"
-    echo "CALL get_ips();" | psql -U postgres | grep -c CALL || true
+    echo "SELECT recent.ip FROM (
+  SELECT ${IP_HISTORY}.ip, max(${IP_HISTORY}.timestamp) as mtime
+  FROM ${IP_HISTORY}
+  INNER JOIN dns_record ON (${IP_HISTORY}.ip=dns_record.ip)
+  WHERE dns_record.root='${root}'
+  GROUP BY ${IP_HISTORY}.ip) recent,
+  ${IP_HISTORY} original
+WHERE original.timestamp=recent.mtime
+  AND original.ip=recent.ip
+  AND original.is_up=true;
+" | psql -U postgres -t -A
+}
+get_ips_down(){
+    local root="${1}"
+    echo "SELECT recent.ip FROM (
+  SELECT ${IP_HISTORY}.ip, max(${IP_HISTORY}.timestamp) as mtime
+  FROM ${IP_HISTORY}
+  INNER JOIN dns_record ON (${IP_HISTORY}.ip=dns_record.ip)
+  WHERE dns_record.root='${root}'
+  GROUP BY ${IP_HISTORY}.ip) recent,
+  ${IP_HISTORY} original
+WHERE original.timestamp=recent.mtime
+  AND original.ip=recent.ip
+  AND original.is_up=false;
+" | psql -U postgres -t -A
+}
+get_ips_unknown(){
+    local root="${1}"
+    echo "SELECT recent.ip FROM (
+  SELECT ${IP_HISTORY}.ip, max(${IP_HISTORY}.timestamp) as mtime
+  FROM ${IP_HISTORY}
+  INNER JOIN dns_record ON (${IP_HISTORY}.ip=dns_record.ip)
+  WHERE dns_record.root='${root}'
+  GROUP BY ${IP_HISTORY}.ip) recent,
+  ${IP_HISTORY} original
+WHERE original.timestamp=recent.mtime
+  AND original.ip=recent.ip
+  AND original.is_up IS NULL;
+" | psql -U postgres -t -A
 }
 #------------------------------
 add_dns(){
@@ -211,13 +235,20 @@ add_dns(){
 }
 dns_nxdomain(){
     local root="${1}"
-    echo "SELECT name FROM dns_record
-    WHERE qtype='A' AND rcode='NXDOMAIN' AND root='${root}'" | psql -U postgres -t -A
+    echo "SELECT name
+          FROM dns_record
+          WHERE qtype='A'
+            AND rcode='NXDOMAIN'
+            AND root='${root}'" | psql -U postgres -t -A
 }
 dns_noerror(){
     local root="${1}"
-    echo "SELECT name FROM dns_record
-    WHERE qtype='A' AND rcode='NOERROR' AND root='${root}' AND ip IS NOT NULL" | psql -U postgres -t -A
+    echo "SELECT name
+          FROM dns_record
+          WHERE qtype='A'
+            AND rcode='NOERROR'
+            AND root='${root}'
+            AND ip IS NOT NULL" | psql -U postgres -t -A
 }
 dns_ns(){
     local root="${1}"
@@ -239,7 +270,8 @@ dns_cname() {
     local root="${1}"
     echo "SELECT data
           FROM dns_record
-          WHERE root='${root}' AND rtype='CNAME'
+          WHERE root='${root}'
+            AND rtype='CNAME'
           GROUP BY data" | psql -U postgres -t -A
 }
 rm_nxdomain(){
@@ -251,21 +283,33 @@ resolved_hosts(){
     local root="${1}"
     echo "SELECT name, ip
           FROM dns_record
-          WHERE qtype='A' AND qtype=rtype AND root='${root}' AND rcode='NOERROR' AND ip IS NOT NULL
+          WHERE qtype='A'
+            AND qtype=rtype
+            AND root='${root}'
+            AND rcode='NOERROR'
+            AND ip IS NOT NULL
           GROUP BY name, ip" | psql -U postgres -t -A
 }
 resolved_domains(){
     local root="${1}"
     echo "SELECT name
           FROM dns_record
-          WHERE qtype='A' AND qtype=rtype AND root='${root}' AND rcode='NOERROR' AND ip IS NOT NULL
+          WHERE qtype='A'
+            AND qtype=rtype
+            AND root='${root}'
+            AND rcode='NOERROR'
+            AND ip IS NOT NULL
           GROUP BY name" | psql -U postgres -t -A
 }
 resolved_ips(){
     local root="${1}"
     echo "SELECT ip
           FROM dns_record
-          WHERE qtype='A' AND qtype=rtype AND root='${root}' AND rcode='NOERROR' AND ip IS NOT NULL
+          WHERE qtype='A'
+            AND qtype=rtype
+            AND root='${root}'
+            AND rcode='NOERROR'
+            AND ip IS NOT NULL
           GROUP BY ip" | psql -U postgres -t -A
 }
 #------------------------------

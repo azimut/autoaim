@@ -2,6 +2,8 @@
 
 set -exuo pipefail
 
+DOMAIN=${1:-${PWD##*/}}
+
 #BYPASS=$HOME/projects/sec/bypass-firewalls-by-DNS-history/bypass-firewalls-by-DNS-history.sh
 NMAP=/usr/bin/nmap
 DATE=$(date +%s)
@@ -37,12 +39,10 @@ nmap_alive(){
         touch ../ips/${ip}/down; echo ${ip} | add_ips_down
     fi
 }
-ips_up(){
-    find .. -type f -name up | cut -f3 -d/
-}
-ips_down(){
-    find .. -type f -name down | cut -f3 -d/
-}
+
+ips_up()  { find .. -type f -name up   | cut -f3 -d/;}
+ips_down(){ find .. -type f -name down | cut -f3 -d/;}
+
 ips_without_provider(){
     uncomment < ips.txt \
         | trim \
@@ -52,22 +52,13 @@ ips_without_provider(){
 # If no ips in domain, quit
 [[ ! -s  ips.txt ]] && { exit 1; }
 
-# Add domain into ips list
-uncomment < ips.txt | trim |
-    while read -r ip; do
-        domain=${PWD%/}
-        domain=${domain##*/}
-        mkdir -p ../ips/${ip}/
-        touch ../ips/${ip}/domains
-        upsert_in_file ../ips/${ip}/domains ${domain}
-    done
+ips_up   | add_ips_up
+ips_down | add_ips_down
 
 # nmap ping check
-uncomment < ips.txt | trim |
+get_ips_unknown ${DOMAIN} |
     while read -r ip; do
-        if [[ ! -f ../ips/${ip}/up && ! -f ../ips/${ip}/down ]]; then
-            nmap_alive ${ip}
-        fi
+        nmap_alive ${ip}
     done
 
 # Add PTR
@@ -90,6 +81,7 @@ if [[ ${#pending[@]} -ne 0 ]]; then
             echo ${provider} > ../ips/${ip}/provider
         done
 fi
+
 ## TODO: I can't do this properly without follow CNAME's resolved, I mean...I want to target
 ##       only domains behind a cloud provider...a way could it be provide more ips to bypass
 # Bypass
