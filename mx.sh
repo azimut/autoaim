@@ -2,10 +2,12 @@
 
 set -exuo pipefail
 
+DOMAIN=${1:-${PWD##*/}}
 # TODO: get all MX, but losses original if CNAME chained
 NMAP=/usr/local/bin/nmap
 
-source ${HOME}/projects/sec/autoaim/helpers.sh
+. ${HOME}/projects/sec/autoaim/helpers.sh
+. ${HOME}/projects/sec/autoaim/persistence.sh
 
 nmap_ext(){
     local nmap_ext=( ssh ssl smtp pop3 tls imap )
@@ -32,13 +34,10 @@ nmap_mx(){
     fi
 }
 
-if compgen -G data/domains/resolved/short_mx_*; then
-    sort -u < data/domains/resolved/short_mx_*
-    cut -f1,6 -d' ' < data/domains/resolved/short_mx_* | trim | sort -u |
-        while IFS=' ' read -r host mx; do
-            echo "${host} ${mx}"
-            mkdir -p ../mx/${mx}
-            upsert_in_file ../mx/${mx}/hosts ${host}
-            nmap_mx ${mx}
-        done
-fi
+dns_mx "${DOMAIN}" |
+    while IFS='|' read -r host mx; do
+        echo "${host} ${mx}"
+        mkdir -p ../mx/${mx}
+        upsert_in_file ../mx/${mx}/hosts ${host}
+        nmap_mx ${mx}
+    done

@@ -219,7 +219,22 @@ dns_noerror(){
     echo "SELECT name FROM dns_record
     WHERE qtype='A' AND rcode='NOERROR' AND root='${root}' AND ip IS NOT NULL" | psql -U postgres -t -A
 }
-
+dns_ns(){
+    local root="${1}"
+    echo "SELECT name,data
+          FROM dns_record
+          WHERE root='${root}'
+            AND qtype=rtype
+            AND qtype='NS'" | psql -U postgres -t -A
+}
+dns_mx(){
+    local root="${1}"
+    echo "SELECT name,SPLIT_PART(data,' ', 2)
+          FROM dns_record
+          WHERE root='${root}'
+            AND qtype=rtype
+            AND qtype='MX'" | psql -U postgres -t -A
+}
 rm_nxdomain(){
     local root="${1}"
     grep -v -f <(dns_nxdomain "${root}") < /dev/stdin
