@@ -121,6 +121,7 @@ massdns(){
         -w ${output} \
         <(printf '%s\n' "${domains[@]}" | sort | uniq)
     gzip -f ${output}
+    massdns_result "${type}" | add_dns "${DOMAIN}" "${type}"
 }
 
 does_servfail(){
@@ -141,12 +142,15 @@ does_servfail(){
 # TODO: add CNAME in massdns query
 massdns_result(){
     local record="${1}"
+    local file=data/domains/resolved/${record,,}_${DOMAIN}.json.gz
     local filter=""
     filter=' . | select(.class == "IN")'
     filter+='  | (.name|rtrimstr("."))'
     filter+=' + " " + .status + " " +'
     filter+=' if .data.answers then (.data.answers[] | { type, data } | join(" ")) else "   " end'
-    jq -r "${filter}" < <(zcat data/domains/resolved/${record,,}_${DOMAIN}.json.gz)
+    if [[ -f ${file} ]]; then
+        jq -r "${filter}" < <(zcat ${file})
+    fi
 }
 
 ###################################################
@@ -183,7 +187,6 @@ massdns A "${domains[@]}"
 
 # Gather ips
 if [[ -f data/domains/resolved/a_${DOMAIN}.json.gz ]]; then
-    massdns_result 'A'       | add_dns ${DOMAIN} 'A'
     resolved_ips "${DOMAIN}" | add_ips
     resolved_ips "${DOMAIN}" > data/ips.txt
 fi
@@ -205,22 +208,17 @@ if [[ ${#domains[@]} -gt 0 ]]; then
 fi
 # TODO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
 
-massdns_result 'AAAA' | add_dns "${DOMAIN}" "AAAA"
-massdns_result 'NS'   | add_dns "${DOMAIN}" "NS"
-massdns_result 'MX'   | add_dns "${DOMAIN}" "MX"
-massdns_result 'TXT'  | add_dns "${DOMAIN}" "TXT"
-
-exit 1
+#exit 1
 
 # Work on domains with NS servers
-if compgen -G data/domains/resolved/short_ns_*; then
-    cut -f1,5 -d ' ' < data/domains/resolved/short_ns_* | sort -u |
-        while read -r domain ns; do
-            graph_trusttrees ${domain}
-            dig_axfr         ${domain} ${ns}
-            nmap_nsec        ${domain} ${ns}
-        done
-fi
+dns_ns "${DOMAIN}" |
+    while IFS='|' read -r domain ns; do
+        graph_trusttrees ${domain}
+        dig_axfr         ${domain} ${ns}
+        nmap_nsec        ${domain} ${ns}
+    done
+
+exit 1
 
 # Work on resolved domains
 printf '%s\n' "${domains[@]}" | uncomment |
@@ -232,11 +230,11 @@ printf '%s\n' "${domains[@]}" | uncomment |
     done
 
 # Show Domains that NOERROR that could be bruteforced down
-rm -f data/domains/noerror
-for ndomain in $(noerror_domains ${DOMAIN}); do
-    if grep -q ${ndomain} <(printf '%s\n' "${domains[@]}"); then
-        continue
-    else
-        echo ${ndomain} | tee -a data/domains/noerror
-    fi
-done
+# rm -f data/domains/noerror
+# for ndomain in $(noerror_domains ${DOMAIN}); do
+#     if grep -q ${ndomain} <(printf '%s\n' "${domains[@]}"); then
+#         continue
+#     else
+#         echo ${ndomain} | tee -a data/domains/noerror
+#     fi
+# done

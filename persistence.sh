@@ -22,28 +22,25 @@ CREATE TABLE IF NOT EXISTS dns_a_wildcard(
     base      VARCHAR(256) NOT NULL,
     root      VARCHAR(256) NOT NULL,
     timestamp TIMESTAMP DEFAULT NOW(),
-    ip        INET
-);
+    ip        INET);
 CREATE TABLE IF NOT EXISTS dns_record(
     name      VARCHAR(256) NOT NULL,
     root      VARCHAR(256) NOT NULL,
+    sub       VARCHAR(256) NOT NULL,
     timestamp TIMESTAMP    DEFAULT NOW(),
     qtype     VARCHAR(16)  NOT NULL,
     rtype     VARCHAR(16),
     rcode     VARCHAR(16)  NOT NULL,
     data      VARCHAR(512),
-    ip        INET
-);
+    ip        INET);
 CREATE TABLE IF NOT EXISTS ${IP_DATA}(
     ip   INET PRIMARY KEY NOT NULL,
     cidr CIDR,
-    asn  VARCHAR(256)
-);
+    asn  VARCHAR(256));
 CREATE TABLE IF NOT EXISTS ${IP_HISTORY}(
-    ip        INET NOT NULL,
+    ip        INET      NOT NULL,
     timestamp TIMESTAMP DEFAULT NOW(),
-    is_up     BOOLEAN
-);
+    is_up     BOOLEAN);
 --------------------
 --------------------
 DROP PROCEDURE IF EXISTS add_wildcard;
@@ -71,8 +68,8 @@ CREATE PROCEDURE add_dns(newdomain VARCHAR,
                          newdata   VARCHAR)
 LANGUAGE SQL
 AS \$$
-INSERT INTO dns_record(name, root, qtype, rtype, rcode, data)
-SELECT LOWER(newdomain), LOWER(newroot), UPPER(newqtype), newrtype, newrcode, newdata
+INSERT INTO dns_record(name, root, sub, qtype, rtype, rcode, data)
+SELECT LOWER(newdomain), LOWER(newroot), SUBSTR(LOWER(newdomain),1,LENGTH(newdomain)-LENGTH(newroot)-1), UPPER(newqtype), newrtype, newrcode, newdata
 WHERE NOT EXISTS (
     SELECT 1
     FROM dns_record
@@ -90,8 +87,8 @@ CREATE PROCEDURE add_dns(newdomain VARCHAR,
                          newip     INET)
 LANGUAGE SQL
 AS \$$
-INSERT INTO dns_record(name, root, qtype, rtype, rcode, ip)
-SELECT LOWER(newdomain), LOWER(newroot), UPPER(newqtype), newrtype, newrcode, newip
+INSERT INTO dns_record(name, root, sub, qtype, rtype, rcode, ip)
+SELECT LOWER(newdomain), LOWER(newroot), SUBSTR(LOWER(newdomain),1,LENGTH(newdomain)-LENGTH(newroot)-1), UPPER(newqtype), newrtype, newrcode, newip
 WHERE NOT EXISTS (
     SELECT 1
     FROM dns_record
