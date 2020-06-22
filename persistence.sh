@@ -235,6 +235,13 @@ dns_mx(){
             AND qtype=rtype
             AND qtype='MX'" | psql -U postgres -t -A
 }
+dns_cname() {
+    local root="${1}"
+    echo "SELECT data
+          FROM dns_record
+          WHERE root='${root}' AND rtype='CNAME'
+          GROUP BY data" | psql -U postgres -t -A
+}
 rm_nxdomain(){
     local root="${1}"
     grep -v -f <(dns_nxdomain "${root}") < /dev/stdin

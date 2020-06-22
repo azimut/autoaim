@@ -3,23 +3,16 @@
 set -exuo pipefail
 
 DOMAIN=${1:-${PWD##*/}}
-FOLDER=data/takeover
+FOLDER=takeover
+
+. ${HOME}/projects/sec/autoaim/persistence.sh
 
 mkdir -p ${FOLDER}
 
-cnamedomains(){
-    local domain=${1}
-    grep CNAME data/domains/resolved/short_a_${domain}.txt \
-        | cut -f1 -d' ' \
-        | sort | uniq \
-        | rev | cut -c2- | rev \
-        | grep ${domain}
-}
+#go get -u github.com/haccer/subjack
 
 # This takes care of CNAMEs
-if cnamedomains ${DOMAIN} &>/dev/null; then
-    subjack -ssl -v -w <(cnamedomains ${DOMAIN}) 2>&1 \
-        | tee ${FOLDER}/output_${DOMAIN}.https.log
-    subjack -v -w <(cnamedomains ${DOMAIN}) 2>&1 \
-        | tee ${FOLDER}/output_${DOMAIN}.http.log
+if [[ $(dns_cname ${DOMAIN} | wc -l) -gt 0 ]]; then
+    subjack -ssl -v -w <(dns_cname ${DOMAIN}) 2>&1 | tee ${FOLDER}/output_${DOMAIN}.https.log
+    subjack      -v -w <(dns_cname ${DOMAIN}) 2>&1 | tee ${FOLDER}/output_${DOMAIN}.http.log
 fi
