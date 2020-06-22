@@ -159,16 +159,7 @@ massdns_result(){
 does_servfail "${DOMAIN}" && { echoerr "servfail"; exit 1; }
 
 # Adds RAW subdomains found in the same "project"
-# mapfile -t domains < <({ grepsubdomain ${DOMAIN}; cat ../*/data/sub*; } \
-    #                            | sed 's#$#.'"${DOMAIN}"'#g' \
-    #                            | unify \
-    #                            | sed 's#$#.'"${DOMAIN}"'#g' \
-    #                            | rm_nxdomain ${DOMAIN} \
-    #                            | purify \
-    #                            | grep -F ${DOMAIN} \
-    #                            | rm_nxdomain ${DOMAIN})
-
-mapfile -t domains < <({ grepsubdomain ${DOMAIN}; } \
+mapfile -t domains < <({ grepsubdomain ${DOMAIN}; getsubs; } \
                            | sed 's#$#.'"${DOMAIN}"'#g' \
                            | unify \
                            | sed 's#$#.'"${DOMAIN}"'#g' \

@@ -209,6 +209,9 @@ WHERE original.timestamp=recent.mtime
   AND original.is_up IS NULL;
 " | psql -U postgres -t -A
 }
+get_subs(){
+    echo "SELECT sub FROM dns_record GROUP BY sub" | psql -U postgres -t -A
+}
 #------------------------------
 add_dns(){
     local root="${1}" # for which domain are these subdomains
