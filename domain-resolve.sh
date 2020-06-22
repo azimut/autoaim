@@ -141,11 +141,12 @@ does_servfail(){
 # TODO: add CNAME in massdns query
 massdns_result(){
     local record="${1}"
-    jq -r '. |
-  select(.class == "IN") |
-  (.name|rtrimstr(".")) + " " + .status + " " +  if .data.answers then (.data.answers[] | select(.type == "'${record^^}'") .data) else " " end
-
-' < <(zcat data/domains/resolved/${record,,}_${DOMAIN}.json.gz)
+    local filter=""
+    filter=' . | select(.class == "IN")'
+    filter+='  | (.name|rtrimstr("."))'
+    filter+=' + " " + .status + " " +'
+    filter+=' if .data.answers then (.data.answers[] | { type, data } | join(" ")) else "   " end'
+    jq -r "${filter}" < <(zcat data/domains/resolved/${record,,}_${DOMAIN}.json.gz)
 }
 
 ###################################################
@@ -154,7 +155,16 @@ massdns_result(){
 does_servfail "${DOMAIN}" && { echoerr "servfail"; exit 1; }
 
 # Adds RAW subdomains found in the same "project"
-mapfile -t domains < <({ grepsubdomain ${DOMAIN}; cat ../*/data/sub*; } \
+# mapfile -t domains < <({ grepsubdomain ${DOMAIN}; cat ../*/data/sub*; } \
+    #                            | sed 's#$#.'"${DOMAIN}"'#g' \
+    #                            | unify \
+    #                            | sed 's#$#.'"${DOMAIN}"'#g' \
+    #                            | rm_nxdomain ${DOMAIN} \
+    #                            | purify \
+    #                            | grep -F ${DOMAIN} \
+    #                            | rm_nxdomain ${DOMAIN})
+
+mapfile -t domains < <({ grepsubdomain ${DOMAIN}; } \
                            | sed 's#$#.'"${DOMAIN}"'#g' \
                            | unify \
                            | sed 's#$#.'"${DOMAIN}"'#g' \
@@ -162,6 +172,7 @@ mapfile -t domains < <({ grepsubdomain ${DOMAIN}; cat ../*/data/sub*; } \
                            | purify \
                            | grep -F ${DOMAIN} \
                            | rm_nxdomain ${DOMAIN})
+
 domains+=("${DOMAIN}") # add root domain
 
 notify-send -t 15000 \
@@ -172,7 +183,7 @@ massdns A "${domains[@]}"
 
 # Gather ips
 if [[ -f data/domains/resolved/a_${DOMAIN}.json.gz ]]; then
-    massdns_result 'A'       | add_dns_a ${DOMAIN}
+    massdns_result 'A'       | add_dns ${DOMAIN} 'A'
     resolved_ips "${DOMAIN}" | add_ips
     resolved_ips "${DOMAIN}" > data/ips.txt
 fi
@@ -194,7 +205,10 @@ if [[ ${#domains[@]} -gt 0 ]]; then
 fi
 # TODO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
 
-massdns_result 'AAAA' | add_dns_aaaa "${DOMAIN}"
+massdns_result 'AAAA' | add_dns "${DOMAIN}" "AAAA"
+massdns_result 'NS'   | add_dns "${DOMAIN}" "NS"
+massdns_result 'MX'   | add_dns "${DOMAIN}" "MX"
+massdns_result 'TXT'  | add_dns "${DOMAIN}" "TXT"
 
 exit 1
 

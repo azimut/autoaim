@@ -16,7 +16,7 @@ parse(){
 cleardb(){
     echo "
 DROP TABLE IF EXISTS dns_a_wildcard;
-DROP TABLE IF EXISTS dns_a;
+DROP TABLE IF EXISTS dns_record;
 DROP TABLE IF EXISTS ${IP_DATA};
 DROP TABLE IF EXISTS ${IP_HISTORY};
 " | psql -U postgres
@@ -30,21 +30,16 @@ CREATE TABLE IF NOT EXISTS dns_a_wildcard(
     timestamp TIMESTAMP DEFAULT NOW(),
     ip        INET
 );
-CREATE TABLE IF NOT EXISTS dns_a(
+CREATE TABLE IF NOT EXISTS dns_record(
     name      VARCHAR(256) NOT NULL,
     root      VARCHAR(256) NOT NULL,
-    timestamp TIMESTAMP DEFAULT NOW(),
-    rcode     VARCHAR(32) NOT NULL,
+    timestamp TIMESTAMP    DEFAULT NOW(),
+    qtype     VARCHAR(16)  NOT NULL,
+    rtype     VARCHAR(16),
+    rcode     VARCHAR(16)  NOT NULL,
+    data      VARCHAR(512),
     ip        INET
 );
-CREATE TABLE IF NOT EXISTS dns_aaaa(
-    name      VARCHAR(256) NOT NULL,
-    root      VARCHAR(256) NOT NULL,
-    timestamp TIMESTAMP DEFAULT NOW(),
-    rcode     VARCHAR(32) NOT NULL,
-    ip        INET
-);
-
 CREATE TABLE IF NOT EXISTS ${IP_DATA}(
     ip   INET PRIMARY KEY NOT NULL,
     cidr CIDR,
@@ -87,35 +82,57 @@ WHERE original.timestamp=recent.mtime
   AND original.is_up=true;
 \$$;
 --------------------
-DROP PROCEDURE IF EXISTS add_dns_a;
-CREATE PROCEDURE add_dns_a(newdomain VARCHAR,
-                           newroot   VARCHAR,
-                           newrcode  VARCHAR,
-                           newip     INET)
+DROP PROCEDURE IF EXISTS add_dns(varchar,varchar,varchar);
+DROP PROCEDURE IF EXISTS add_dns(varchar,varchar,varchar,varchar);
+CREATE PROCEDURE add_dns(newdomain VARCHAR,
+                         newroot   VARCHAR,
+                         newqtype  VARCHAR,
+                         newrcode  VARCHAR)
 LANGUAGE SQL
 AS \$$
-INSERT INTO dns_a(name, root, rcode, ip)
-SELECT newdomain, newroot,  newrcode, newip
+INSERT INTO dns_record(name, root, qtype, rcode)
+SELECT newdomain, newroot, newqtype, newrcode
 WHERE NOT EXISTS (
     SELECT 1
-    FROM dns_a
+    FROM dns_record
+    WHERE name=newdomain
+    AND root=newroot
+    AND newqtype=newqtype);
+\$$;
+
+DROP PROCEDURE IF EXISTS add_dns(varchar,varchar,varchar,varchar,varchar,varchar);
+CREATE PROCEDURE add_dns(newdomain VARCHAR,
+                         newroot   VARCHAR,
+                         newqtype  VARCHAR,
+                         newrtype  VARCHAR,
+                         newrcode  VARCHAR,
+                         newdata   VARCHAR)
+LANGUAGE SQL
+AS \$$
+INSERT INTO dns_record(name, root, qtype, rtype, rcode, data)
+SELECT newdomain, newroot, newqtype, newrtype, newrcode, newdata
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM dns_record
     WHERE name=newdomain
     AND root=newroot
     AND rcode=newrcode
-    AND ip=newip);
+    AND data=newdata);
 \$$;
-DROP PROCEDURE IF EXISTS add_dns_aaaa;
-CREATE PROCEDURE add_dns_aaaa(newdomain VARCHAR,
-                              newroot   VARCHAR,
-                              newrcode  VARCHAR,
-                              newip     INET)
+DROP PROCEDURE IF EXISTS add_dns(varchar,varchar,varchar,varchar,varchar,inet);
+CREATE PROCEDURE add_dns(newdomain VARCHAR,
+                         newroot   VARCHAR,
+                         newqtype  VARCHAR,
+                         newrtype  VARCHAR,
+                         newrcode  VARCHAR,
+                         newip     INET)
 LANGUAGE SQL
 AS \$$
-INSERT INTO dns_aaaa(name, root, rcode, ip)
-SELECT newdomain, newroot,  newrcode, newip
+INSERT INTO dns_record(name, root, qtype, rtype, rcode, ip)
+SELECT newdomain, newroot, newqtype, newrtype, newrcode, newip
 WHERE NOT EXISTS (
     SELECT 1
-    FROM dns_aaaa
+    FROM dns_record
     WHERE name=newdomain
     AND root=newroot
     AND rcode=newrcode
@@ -196,40 +213,35 @@ get_ips_up(){
     echo "CALL get_ips();" | psql -U postgres | grep -c CALL || true
 }
 #------------------------------
-add_dns_a(){
-    local root="${1}"
+add_dns(){
+    local root="${1}" # for which domain are these subdomains
+    local qtype="${2}" # what record type we queried
     local ret=""
-    while read -r domain rcode ip; do
-        if [[ -z ${ip} ]]; then
-            ret+="CALL add_dns_a('${domain}','${root}','${rcode}',NULL);"
+    while read -r domain rcode rtype ipordata; do
+        if [[ ${qtype} == "${rtype}" ]] && [[ ${rtype} == "A" || ${rtype} == "AAAA" ]]; then
+            [[ -z ${ipordata} ]] && ipordata=NULL || ipordata="'${ipordata}'"
+            [[ -z ${rtype}    ]] && rtype=NULL    || rtype="'${rtype}'"
+            ret+="CALL add_dns('${domain}','${root}','${qtype}',${rtype},'${rcode}',INET ${ipordata});
+"
         else
-            ret+="CALL add_dns_a('${domain}','${root}','${rcode}','${ip}');"
-        fi
-    done
-    echo -n "${ret}" | psql -U postgres | grep -c CALL || true
-}
-add_dns_aaaa(){
-    local root="${1}"
-    local ret=""
-    while read -r domain rcode ip; do
-        if [[ -z ${ip} ]]; then
-            ret+="CALL add_dns_aaaa('${domain}','${root}','${rcode}',NULL);"
-        else
-            ret+="CALL add_dns_aaaa('${domain}','${root}','${rcode}','${ip}');"
+            [[ -z ${ipordata} ]] && ipordata=NULL || ipordata="'${ipordata}'"
+            [[ -z ${rtype}    ]] && rtype=NULL    || rtype="'${rtype}'"
+
+            ret+="CALL add_dns('${domain}','${root}','${qtype}',${rtype},'${rcode}',${ipordata});
+"
         fi
     done
     echo -n "${ret}" | psql -U postgres | grep -c CALL || true
 }
 dns_nxdomain(){
     local root="${1}"
-    echo "SELECT name FROM dns_a
-    WHERE rcode='NXDOMAIN' AND root='${root}'" | psql -U postgres -t -A
+    echo "SELECT name FROM dns_record
+    WHERE qtype='A' AND rcode='NXDOMAIN' AND root='${root}'" | psql -U postgres -t -A
 }
-
 dns_noerror(){
     local root="${1}"
-    echo "SELECT name FROM dns_a
-    WHERE rcode='NOERROR' AND root='${root}'" | psql -U postgres -t -A
+    echo "SELECT name FROM dns_record
+    WHERE qtype='A' AND rcode='NOERROR' AND root='${root}' AND ip IS NOT NULL" | psql -U postgres -t -A
 }
 
 rm_nxdomain(){
@@ -240,22 +252,22 @@ rm_nxdomain(){
 resolved_hosts(){
     local root="${1}"
     echo "SELECT name, ip
-          FROM dns_a
-          WHERE root='${root}' AND rcode='NOERROR'
+          FROM dns_record
+          WHERE qtype='A' AND qtype=rtype AND root='${root}' AND rcode='NOERROR' AND ip IS NOT NULL
           GROUP BY name, ip" | psql -U postgres -t -A
 }
 resolved_domains(){
     local root="${1}"
     echo "SELECT name
-          FROM dns_a
-          WHERE root='${root}' AND rcode='NOERROR'
+          FROM dns_record
+          WHERE qtype='A' AND qtype=rtype AND root='${root}' AND rcode='NOERROR' AND ip IS NOT NULL
           GROUP BY name" | psql -U postgres -t -A
 }
 resolved_ips(){
     local root="${1}"
     echo "SELECT ip
-          FROM dns_a
-          WHERE root='${root}' AND rcode='NOERROR'
+          FROM dns_record
+          WHERE qtype='A' AND qtype=rtype AND root='${root}' AND rcode='NOERROR' AND ip IS NOT NULL
           GROUP BY ip" | psql -U postgres -t -A
 }
 #------------------------------
@@ -271,7 +283,10 @@ dns_add_wildcard(){
 resolved_domains_nowildcard(){
     local root="${1}"
     echo "SELECT d.name
-          FROM dns_a d, dns_a_wildcard w
-          WHERE d.root='${root}' AND w.root='${root}' AND d.ip!=w.ip
+          FROM dns_record d, dns_a_wildcard w
+          WHERE d.qtype='A' AND d.ip IS NOT NULL
+            AND d.root='${root}'
+            AND w.root='${root}'
+            AND d.ip!=w.ip
           GROUP BY d.name" | psql -U postgres -t -A
 }
