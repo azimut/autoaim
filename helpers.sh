@@ -1,5 +1,6 @@
 #!/bin/bash
 
+MASSDNS=$HOME/projects/sec/massdns
 RESOLVERS=$HOME/projects/sec/autoaim/resolvers.txt
 
 #==================================================
@@ -72,9 +73,8 @@ jq_inline(){
     jq -r "${filter}" < /dev/stdin
 }
 massdns_inline(){
-    local domain="${1}"
-    local type="${2}"
-    local concurrency="${3:-20}"
+    local type="${1}"
+    local concurrency="${2:-20}"
     $MASSDNS/bin/massdns -s ${concurrency} \
                          --retry SERVFAIL,REFUSED \
                          -c 25 \
@@ -83,8 +83,7 @@ massdns_inline(){
                          -r ${RESOLVERS} \
                          -w /dev/stdout \
                          /dev/stdin \
-        | jq_inline "${type}" \
-        | tee >(add_dns "${domain}" "${type}")
+        | jq_inline "${type}"
 }
 #==================================================
 # Impure - Depends on file
