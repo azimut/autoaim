@@ -5,94 +5,12 @@ set -euo pipefail
 DOMAIN=${1:-${PWD##*/}}
 CONCURRENCY=${2:-20}
 
-NMAP=/usr/local/bin/nmap
 RESOLVERS=$HOME/projects/sec/autoaim/resolvers.txt
 MASSDNS=$HOME/projects/sec/massdns
 FOLDER=domains/resolved
-SUBDOMAINIZER=$HOME/projects/sec/SubDomainizer/SubDomainizer.py
 
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
-
-mkdir -p ${FOLDER}
-
-mkdir -p ${FOLDER}/../SubDomainizer
-mkdir -p ${FOLDER}/../hakrawler
-mkdir -p ${FOLDER}/../dig
-mkdir -p ${FOLDER}/../nmap
-mkdir -p ${FOLDER}/../trusttrees
-
-# To any with NS
-nmap_nsec(){
-    local domain=${1}
-    local ns=${2}
-    file=${FOLDER}/../nmap/nsec_${domain}_${ns}
-    if [[ ! -f ${file}.gnmap ]]; then
-        sudo $NMAP -sn -n -v -Pn \
-             --reason \
-             --dns-servers 1.1.1.1 \
-             --script "dns-nsec-enum,dns-nsec3-enum" \
-             --script-args "dns-nsec-enum.domains=${domain},dns-nsec3-enum.domains=${domain}" \
-             -oA ${file} \
-             ${ns}
-    fi
-}
-
-# To any with NS/sub, assume NS resolves
-dig_axfr(){
-    local domain=${1}
-    local ns=${2}
-    dig @1.1.1.1 +short ${ns} A | trim |
-        while read -r ip; do
-            file=${FOLDER}/../dig/axfr_${ns}_${ip}_${domain}
-            if [[ ! -f ${file} ]]; then
-                dig @${ip} ${domain} AXFR 2>&1 | tee ${file}
-            fi
-        done
-}
-graph_trusttrees(){
-    local domain=${1}
-    local filename=${domain}_trust_tree_graph.png
-    if [[ ! -f ${FOLDER}/../trusttrees/${domain}_trusttrees.log ]]; then
-        cd ${FOLDER}/../trusttrees
-        trusttrees --gandi-api-v5-key $GANDI_API \
-                   --resolvers <(echo -e "8.8.8.8\n1.1.1.1") \
-                   --target ${domain} -x png 2>&1 | tee ${domain}_trusttrees.log
-        mv output/${filename} .
-        rm -rf ./output
-        cd -
-    fi
-}
-# To any resolved subdomain
-subdomainizer(){
-    local domain=${1}
-    file=${FOLDER}/../SubDomainizer/sub_${domain}.txt
-    if [[ ! -f ${file} ]]; then
-        #-g -gt $GITHUB_TOKEN # it is buggy
-        timeout --signal=9 120 python3 ${SUBDOMAINIZER} \
-                -k \
-                --url ${domain} \
-                -o ${file} 2>&1 | tee ${FOLDER}/../SubDomainizer/all_${domain}.txt
-    fi
-}
-
-# To any resolved subdomain
-hakrawler(){
-    local domain=${1}
-    local port=${2-80}
-    if [[ ${port} -eq 80 ]]; then
-        local url=http://${domain}/
-    else
-        local url=https://${domain}/
-    fi
-    local file=${FOLDER}/../hakrawler/out_${domain}_${port}.txt
-    if [[ ! -f ${file} ]]; then
-        timeout 120 hakrawler \
-                -scope yolo \
-                -linkfinder -depth 3 \
-                -url ${url} 2>&1 | tee ${file}
-    fi
-}
 
 massdns(){
     local type=${1}
@@ -154,7 +72,8 @@ mapfile -t domains < <({ grepsubdomain ${DOMAIN}; get_subs; } \
                            | rm_nxdomain ${DOMAIN} \
                            | purify \
                            | grep -F ${DOMAIN} \
-                           | rm_nxdomain ${DOMAIN})
+                           | rm_nxdomain ${DOMAIN} \
+                           | rm_resolved_wildcards ${DOMAIN})
 
 domains+=("${DOMAIN}") # add root domain
 
@@ -186,20 +105,3 @@ if [[ ${#domains[@]} -gt 0 ]]; then
     massdns TXT   "${domains[@]}"
 fi
 # TODO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
-
-# Work on domains with NS servers
-dns_ns "${DOMAIN}" |
-    while IFS='|' read -r domain ns; do
-        graph_trusttrees ${domain}
-        dig_axfr         ${domain} ${ns}
-        nmap_nsec        ${domain} ${ns}
-    done
-
-# # TODO: do port 443
-# # Work on resolved domains
-# for domain in "${domains[@]}"; do
-#     if is_port_open 80 ${domain}; then
-#         hakrawler     ${domain}
-#         subdomainizer ${domain}
-#     fi
-# done
