@@ -69,22 +69,15 @@ get_ips_unknown ${DOMAIN} |
     done
 
 # Add PTR
-get_ip_noptr ${DOMAIN} |
-    while read -r ip; do
-        if [[ -s ../ips/${ip}/ptr ]]; then
-            cat ../ips/${ip}/ptr
-            add_ip_ptr "${ip}" "$(cat ../ips/${ip}/ptr)"
-        fi
-        if [[ ! -f  ../ips/${ip}/ptr ]]; then
-            mkdir -p ../ips/${ip}/
-            dig +short @1.1.1.1 -x ${ip} > ../ips/${ip}/ptr
-            add_ip_ptr "${ip}" "$(cat ../ips/${ip}/ptr)"
-        fi
-    done
+get_ip_noptr "${DOMAIN}" | esrever \
+    | add_ip_reverse
+get_ip_noptr "${DOMAIN}" | esrever | cut -f2 -d, | massdns_inline PTR \
+    | add_ip_ptr
 
 mapfile -t pending < <(ips_with_provider)
 for ip in "${pending[@]}"; do
-    echo "${ip},$(cat ../ips/${ip}/cidr),$(cat ../ips/${ip}/provider)" | add_ip_data
+    echo "${ip},$(cat ../ips/${ip}/cidr),$(cat ../ips/${ip}/provider)" \
+        | add_ip_data
 done
 
 # Add Provider - Ignore ips already processed

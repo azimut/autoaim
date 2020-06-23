@@ -34,9 +34,14 @@ CREATE TABLE IF NOT EXISTS dns_record(
     data      VARCHAR(512),
     ip        INET);
 CREATE TABLE IF NOT EXISTS ip_ptr (
-    timestamp TIMESTAMP DEFAULT NOW(),
-    ip        INET NOT NULL,
+    timestamp TIMESTAMP   DEFAULT NOW(),
+    ip        INET        NOT NULL,
+    rcode     VARCHAR(16) NOT NULL,
     ptr       VARCHAR(256)
+);
+CREATE TABLE IF NOT EXISTS ip_reverse (
+    ip        INET         NOT NULL PRIMARY KEY,
+    reverse   VARCHAR(256) NOT NULL
 );
 CREATE TABLE IF NOT EXISTS ${IP_DATA}(
     timestamp TIMESTAMP DEFAULT NOW(),
@@ -47,26 +52,43 @@ CREATE TABLE IF NOT EXISTS ${IP_HISTORY}(
     timestamp TIMESTAMP DEFAULT NOW(),
     ip        INET NOT NULL,
     is_up     BOOLEAN);
---------------------
-DROP PROCEDURE IF EXISTS insert_ip_ptr;
-CREATE PROCEDURE insert_ip_ptr(newip  INET,
-                               newptr VARCHAR)
+------------------------------
+DROP PROCEDURE IF EXISTS insert_ip_reverse;
+CREATE PROCEDURE insert_ip_reverse(newip     INET,
+                                  newreverse VARCHAR)
 LANGUAGE SQL
 AS \$$
-INSERT INTO ip_ptr(ip, ptr)
-SELECT newip, newptr
+INSERT INTO ip_reverse(ip, reverse)
+SELECT newip, newreverse
 WHERE NOT EXISTS (
+    SELECT 1
+    FROM ip_reverse
+    WHERE ip=newip);
+\$$;
+--------------------
+DROP PROCEDURE IF EXISTS insert_ip_ptr;
+CREATE PROCEDURE insert_ip_ptr(newrdomain VARCHAR,
+                               newrcode   VARCHAR,
+                               newptr     VARCHAR)
+LANGUAGE SQL
+AS \$$
+INSERT INTO ip_ptr(ip, rcode, ptr)
+SELECT rv.ip, newrcode, newptr
+FROM ip_reverse rv
+WHERE rv.reverse=newrdomain
+AND NOT EXISTS (
     SELECT 1
     FROM (
         SELECT ip, max(timestamp) as maxtime
         FROM ip_ptr
-        WHERE ip=newip
+        WHERE ip=rv.ip
         GROUP BY ip
     ) recent,
     ip_ptr original
     WHERE original.ip=recent.ip
-    AND recent.maxtime=original.timestamp
-    AND original.ptr!=newptr);
+      AND original.timestamp=recent.maxtime
+      AND ( original.ptr=newptr OR ( original.ptr IS NULL AND newptr IS NULL) )
+      AND original.rcode=newrcode);
 \$$;
 --------------------
 DROP PROCEDURE IF EXISTS insert_ip_data;
@@ -405,7 +427,7 @@ dns_add_wildcard(){
 # TODO: check if domain is on subdomain of wildcard subdomains...
 resolved_domains_nowildcard(){
     local root="${1}"
-    echo "SELECT reduced.name
+    echo "SELECT DISTINCT ON (reduced.name) reduced.name
           FROM (SELECT d.name, d.ip
                 FROM dns_record d
                 WHERE d.root='${root}'
@@ -452,10 +474,13 @@ add_ip_data(){
 }
 # add_ip_ptr - add 1 (one) at the time
 add_ip_ptr(){
-    local ip="${1}" ptr="${2}"
-    [[ -z ${ptr} ]] && ptr='NULL' || ptr="'${ptr}'"
-    echo "CALL insert_ip_ptr('${ip}',${ptr});"\
-        | psql -U postgres | grep -c CALL || true
+    local ret=""
+    while read -r rdomain rcode _ ptr; do
+        [[ -z ${ptr} ]] && ptr='NULL' || ptr="'${ptr}'"
+        ret+="CALL insert_ip_ptr('${rdomain}','${rcode}',${ptr});"
+        ret+=$'\n'
+    done
+    echo "${ret}" | psql -U postgres | grep -c CALL || true
 }
 get_ip_nodata(){
     local root="${1}"
@@ -472,14 +497,19 @@ get_ip_nodata(){
 }
 get_ip_noptr(){
     local root="${1}"
-    echo "SELECT d.ip
+    echo "SELECT DISTINCT ON (d.ip) d.ip
           FROM dns_record d
-          LEFT JOIN ip_ptr i
-            ON d.ip=i.ip AND i.ptr IS NULL
-          WHERE root='${root}'
+          WHERE NOT EXISTS (SELECT 1 FROM ip_ptr i WHERE d.ip=i.ip AND i.ptr IS NOT NULL)
+          AND root='${root}'
             AND d.qtype=d.rtype
-            AND d.qtype IN ('A', 'AAAA')
-            AND d.ip IS NOT NULL
-          GROUP BY d.ip" \
-              | psql -U postgres -t -A
+            AND d.qtype IN ('A', 'AAAA')" \
+                | psql -U postgres -t -A
+}
+add_ip_reverse(){
+    local ret=""
+    while IFS=, read -r ip reverse; do
+        ret+="CALL insert_ip_reverse(INET '${ip}','${reverse}');"
+        ret+=$'\n'
+    done
+    echo "${ret}" | psql -U postgres | grep -c CALL || true
 }
