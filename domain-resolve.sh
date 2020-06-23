@@ -195,11 +195,11 @@ dns_ns "${DOMAIN}" |
         nmap_nsec        ${domain} ${ns}
     done
 
-# TODO: do port 443
-# Work on resolved domains
-for domain in "${domains[@]}"; do
-    if is_port_open 80 ${domain}; then
-        hakrawler     ${domain}
-        subdomainizer ${domain}
-    fi
-done
+# # TODO: do port 443
+# # Work on resolved domains
+# for domain in "${domains[@]}"; do
+#     if is_port_open 80 ${domain}; then
+#         hakrawler     ${domain}
+#         subdomainizer ${domain}
+#     fi
+# done
