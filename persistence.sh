@@ -109,9 +109,9 @@ WHERE NOT EXISTS (
     ) recent,
     ${IP_DATA} original
     WHERE original.ip=recent.ip
-    AND recent.maxtime=original.timestamp
-    AND ( original.cidr!=newcidr
-          OR original.asn!=newasn));
+      AND recent.maxtime=original.timestamp
+      AND ( ( original.cidr=newcidr AND original.asn=newasn) OR
+            ( original.cidr IS NULL AND newcidr IS NULL)));
 \$$;
 --------------------
 DROP PROCEDURE IF EXISTS add_wildcard;
