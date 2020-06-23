@@ -35,17 +35,17 @@ CREATE TABLE IF NOT EXISTS dns_record(
     ip        INET);
 CREATE TABLE IF NOT EXISTS ip_ptr (
     timestamp TIMESTAMP DEFAULT NOW(),
-    ip        INET PRIMARY KEY NOT NULL,
+    ip        INET NOT NULL,
     ptr       VARCHAR(256)
 );
 CREATE TABLE IF NOT EXISTS ${IP_DATA}(
     timestamp TIMESTAMP DEFAULT NOW(),
-    ip        INET PRIMARY KEY NOT NULL,
+    ip        INET NOT NULL,
     cidr      CIDR,
     asn       VARCHAR(256));
 CREATE TABLE IF NOT EXISTS ${IP_HISTORY}(
     timestamp TIMESTAMP DEFAULT NOW(),
-    ip        INET PRIMARY KEY NOT NULL,
+    ip        INET NOT NULL,
     is_up     BOOLEAN);
 --------------------
 DROP PROCEDURE IF EXISTS insert_ip_ptr;
@@ -205,7 +205,7 @@ add_ips() {
 }
 add_ips_up() {
     local ret=""
-    while read -r ip; do ret+="CALL insert_downip('${ip}');"; done
+    while read -r ip; do ret+="CALL insert_upip('${ip}');"; done
     echo "${ret}" | psql -U postgres | grep -c CALL || true
 }
 add_ips_down() {
