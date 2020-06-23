@@ -21,9 +21,9 @@ NMAP=/usr/local/bin/nmap
 BESTWHOIS=$HOME/projects/sec/bestwhois/bestwhois
 AMASS=$HOME/projects/sec/amass/amass
 ONEFORALL=$HOME/projects/sec/OneForAll/oneforall/oneforall.py
-FOLDER=data/domains
+FOLDER=domains
 
-source ${HOME}/projects/sec/autoaim/helpers.sh
+. ${HOME}/projects/sec/autoaim/helpers.sh
 
 mkdir -p ${FOLDER}/amass
 mkdir -p ${FOLDER}/dig
@@ -33,12 +33,12 @@ mkdir -p ${FOLDER}/oneforall
 # Only main domain
 whoisxml(){
     local domain=${1}
-    local file=data/whoisxml_${domain}.json
+    local file=whoisxml_${domain}.json
     if [[ ! -f ${file} ]]; then
         python3 ${BESTWHOIS} \
                 --nocolor \
                 --api $WHOISXML_API \
-                starbucks.com 2>&1 | tee ${file}
+                ${domain} 2>&1 | tee ${file}
     fi
 }
 
@@ -85,6 +85,18 @@ nmap_domain(){
              -oA ${file} \
              1.1.1.1
     fi
+}
+
+amass_download(){
+    local amass='amass_linux_amd64'
+    local amass_url="https://github.com/OWASP/Amass/releases/latest/download/${amass}.zip"
+    cd ${HOME}/projects/sec
+    if ! wget --continue -S "${amass_url}" | grep -F 'HTTP/1.1 416'; then
+        rm    -rf ./amass
+        unzip -e ${amass}.zip
+        mv    ${amass} amass
+    fi
+    cd -
 }
 
 # Main domain
@@ -152,25 +164,20 @@ oneforall(){
     fi
 }
 
-while read -r domain; do
-    whoisxml      "${domain}" # whois
-    nmap_domain   "${domain}" # srv, nsec # SUBDOMAINs
-    dig_any       "${domain}" # any       # SUBDOMAINs or IPs (?)
-    oneforall     "${domain}" # passive   # SUBDOMAINS
-    amass_passive "${domain}" # passive   # SUBDOMAINs
-    amass_whois   "${domain}" # whois     # DOMAINs
-    # Save subdomains
-    grepdomain ${domain} \
-        | sed 's/'${domain}'$//g' \
-        | uncomment \
-        | rev | cut -c2- | rev \
-        | sort > data/subdomains_${domain}.txt
-done < <(echo ${DOMAIN}) #<(echo starbucks.) #<(cat data/domains.txt | uncomment | trim | grep '.com.sg')
+#amass_download
 
+whoisxml      "${DOMAIN}" # whois
+nmap_domain   "${DOMAIN}" # srv, nsec # SUBDOMAINs
+dig_any       "${DOMAIN}" # any       # SUBDOMAINs or IPs (?)
+oneforall     "${DOMAIN}" # passive   # SUBDOMAINS
+amass_passive "${DOMAIN}" # passive   # SUBDOMAINs
+amass_whois   "${DOMAIN}" # whois     # DOMAINs
+
+# Report results
 result=""
-for dir in data/domains/*/; do
+for dir in domains/*/; do
     cd ${dir}
-    result+=${dir#data/domains/}
+    result+=${dir#domains/}
     result+=$(grepdomain ${DOMAIN} | wc -l)
     result+=$'\n'
     cd -
