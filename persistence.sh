@@ -11,11 +11,11 @@ cleardb(){
     echo "
 DROP TABLE IF EXISTS dns_a_wildcard;
 DROP TABLE IF EXISTS dns_record;
+DROP TABLE IF EXISTS ip_ptr;
 DROP TABLE IF EXISTS ${IP_DATA};
 DROP TABLE IF EXISTS ${IP_HISTORY};
 " | psql -U postgres
 }
-
 initdb(){
     template="""
 CREATE TABLE IF NOT EXISTS dns_a_wildcard(
@@ -33,15 +33,61 @@ CREATE TABLE IF NOT EXISTS dns_record(
     rcode     VARCHAR(16)  NOT NULL,
     data      VARCHAR(512),
     ip        INET);
-CREATE TABLE IF NOT EXISTS ${IP_DATA}(
-    ip   INET PRIMARY KEY NOT NULL,
-    cidr CIDR,
-    asn  VARCHAR(256));
-CREATE TABLE IF NOT EXISTS ${IP_HISTORY}(
-    ip        INET      NOT NULL,
+CREATE TABLE IF NOT EXISTS ip_ptr (
     timestamp TIMESTAMP DEFAULT NOW(),
+    ip        INET PRIMARY KEY NOT NULL,
+    ptr       VARCHAR(256)
+);
+CREATE TABLE IF NOT EXISTS ${IP_DATA}(
+    timestamp TIMESTAMP DEFAULT NOW(),
+    ip        INET PRIMARY KEY NOT NULL,
+    cidr      CIDR,
+    asn       VARCHAR(256));
+CREATE TABLE IF NOT EXISTS ${IP_HISTORY}(
+    timestamp TIMESTAMP DEFAULT NOW(),
+    ip        INET PRIMARY KEY NOT NULL,
     is_up     BOOLEAN);
 --------------------
+DROP PROCEDURE IF EXISTS insert_ip_ptr;
+CREATE PROCEDURE insert_ip_ptr(newip INET, newptr VARCHAR)
+LANGUAGE SQL
+AS \$$
+INSERT INTO ip_ptr(ip, ptr)
+SELECT newip, newptr
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM (
+        SELECT ip, max(timestamp) as maxtime
+        FROM ip_ptr
+        WHERE ip=newip
+        GROUP BY ip
+    ) recent,
+    ip_ptr original
+    WHERE original.ip=recent.ip
+    AND recent.maxtime=original.timestamp
+    AND original.ptr!=newptr);
+\$$;
+--------------------
+DROP PROCEDURE IF EXISTS insert_ip_data;
+CREATE PROCEDURE insert_ip_data(newip INET, newcidr CIDR, newasn VARCHAR)
+LANGUAGE SQL
+AS \$$
+INSERT INTO ${IP_DATA}(ip, cidr, asn)
+SELECT newip, newcidr, newasn
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM (
+        SELECT ip, max(timestamp) as maxtime
+        FROM ${IP_DATA}
+        WHERE ip=newip
+        GROUP BY ip
+    ) recent,
+    ${IP_DATA} original
+    WHERE original.ip=recent.ip
+    AND recent.maxtime=original.timestamp
+    AND ( original.cidr!=newcidr
+          OR original.asn!=newasn));
+\$$;
 --------------------
 DROP PROCEDURE IF EXISTS add_wildcard;
 CREATE PROCEDURE add_wildcard(newbase VARCHAR,
@@ -50,13 +96,13 @@ CREATE PROCEDURE add_wildcard(newbase VARCHAR,
 LANGUAGE SQL
 AS \$$
 INSERT INTO dns_a_wildcard(base, root, ip)
-  SELECT LOWER(newbase), LOWER(newroot), newip
-  WHERE NOT EXISTS (
+SELECT LOWER(newbase), LOWER(newroot), newip
+WHERE NOT EXISTS (
     SELECT 1
     FROM dns_a_wildcard
     WHERE base=newbase
-      AND root=newroot
-      AND ip=newip);
+    AND root=newroot
+    AND ip=newip);
 \$$;
 --------------------
 DROP PROCEDURE IF EXISTS add_dns(varchar,varchar,varchar,varchar,varchar,varchar);
@@ -352,16 +398,47 @@ resolved_domains_nowildcard(){
           WHERE w.ip IS NULL
 " | psql -U postgres -t -A
 }
-
-# "SELECT reduced.name, reduced.ip
-#           FROM (SELECT d.name, d.ip
-#           FROM dns_record d
-#           WHERE d.root='${root}'
-#             AND d.qtype='A'
-#             AND d.rcode='NOERROR'
-#             AND d.ip IS NOT NULL) reduced
-#           RIGHT JOIN dns_a_wildcard w
-#               ON reduced.ip=w.ip
-#               AND w.ip IS NOT NULL
-#               AND reduced.ip IS NOT NULL
-#               AND reduced.name!=w.base"
+#------------------------------
+add_ip_data(){
+    local ret=""
+    while IFS=, read -r ip cidr asn; do
+        [[ -z ${cidr} ]] && cidr='NULL' || cidr="CIDR '${cidr}'"
+        [[ -z ${asn}  ]] && asn='NULL'  || asn="'${asn}'"
+        ret+="CALL insert_ip_data(INET '${ip}', ${cidr}, ${asn});"
+        ret+=$'\n'
+    done
+    echo "${ret}" | psql -U postgres | grep -c CALL || true
+}
+# add_ip_ptr - add 1 (one) at the time
+add_ip_ptr(){
+    local ip="${1}" ptr="${2}"
+    [[ -z ${ptr} ]] && ptr='NULL' || ptr="'${ptr}'"
+    echo "CALL insert_ip_ptr('${ip}',${ptr});"\
+        | psql -U postgres | grep -c CALL || true
+}
+get_ip_nodata(){
+    local root="${1}"
+    echo "SELECT d.ip
+          FROM dns_record d
+          LEFT JOIN ${IP_DATA} i
+            ON d.ip=i.ip AND ( i.cidr IS NULL OR i.asn IS NULL)
+          WHERE root='${root}'
+            AND d.qtype=d.rtype
+            AND d.qtype IN ('A', 'AAAA')
+            AND d.ip IS NOT NULL
+          GROUP BY d.ip" \
+              | psql -U postgres -t -A
+}
+get_ip_noptr(){
+    local root="${1}"
+    echo "SELECT d.ip
+          FROM dns_record d
+          LEFT JOIN ip_ptr i
+            ON d.ip=i.ip AND i.ptr IS NULL
+          WHERE root='${root}'
+            AND d.qtype=d.rtype
+            AND d.qtype IN ('A', 'AAAA')
+            AND d.ip IS NOT NULL
+          GROUP BY d.ip" \
+              | psql -U postgres -t -A
+}

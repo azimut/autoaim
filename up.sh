@@ -49,6 +49,12 @@ ips_without_provider(){
         | grep -vxf <(find ../ips/ -type f -name provider | grepip)
 }
 
+ips_with_provider(){
+    uncomment < ips.txt \
+        | trim \
+        | grep -xf <(find ../ips/ -type f -name provider | grepip)
+}
+
 # If no ips in domain, quit
 [[ ! -s  ips.txt ]] && { exit 1; }
 
@@ -62,12 +68,23 @@ get_ips_unknown ${DOMAIN} |
     done
 
 # Add PTR
-uncomment < ips.txt | trim |
+get_ip_noptr ${DOMAIN} |
     while read -r ip; do
-        if [[ ! -f ../ips/${ip}/ptr ]]; then
+        if [[ -s ../ips/${ip}/ptr ]]; then
+            cat ../ips/${ip}/ptr
+            add_ip_ptr "${ip}" "$(cat ../ips/${ip}/ptr)"
+        fi
+        if [[ ! -f  ../ips/${ip}/ptr ]]; then
+            mkdir -p ../ips/${ip}/
             dig +short @1.1.1.1 -x ${ip} > ../ips/${ip}/ptr
+            add_ip_ptr "${ip}" "$(cat ../ips/${ip}/ptr)"
         fi
     done
+
+mapfile -t pending < <(ips_with_provider)
+for ip in "${pending[@]}"; do
+    echo "${ip},$(cat ../ips/${ip}/cidr),$(cat ../ips/${ip}/provider)" | add_ip_data
+done
 
 # Add Provider - Ignore ips already processed
 mapfile -t pending < <(ips_without_provider)
