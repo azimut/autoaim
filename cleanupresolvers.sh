@@ -27,13 +27,9 @@ usage(){
 [[ -s $INPUT_FILE ]] || { echo "Invalid INPUT_FILE"; usage; exit 1; }
 
 doit(){
-    local resolverip="${1}"
-    local domain="${2}"
-    local ip="${3}"
-    local random_sub="${4}"
-    local s=""
+    local resolverip="${1}" domain="${2}" ip="${3}" s=""
     local a=()
-    local sketchy=(facebook.com paypal.com google.com telegram.com wikileaks.com)
+    local random_sub="${4}" sketchy=(facebook.com paypal.com google.com telegram.com wikileaks.com)
     # know A
     if s=$(dig @${resolverip} +short +timeout=2 ${domain}); then
         if [[ ${s} != "${ip}" ]]; then
