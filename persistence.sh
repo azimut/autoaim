@@ -256,7 +256,7 @@ WHERE original.timestamp=recent.mtime
 " | psql -U postgres -t -A
 }
 get_subs(){
-    echo "SELECT sub FROM dns_record GROUP BY sub" | psql -U postgres -t -A
+    echo "SELECT DISTINCT ON (sub) sub FROM dns_record" | psql -U postgres -t -A
 }
 #------------------------------
 add_dns(){
