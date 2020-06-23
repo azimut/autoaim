@@ -5,8 +5,6 @@ set -euo pipefail
 DOMAIN=${1:-${PWD##*/}}
 CONCURRENCY=${2:-20}
 
-RESOLVERS=$HOME/projects/sec/autoaim/resolvers.txt
-MASSDNS=$HOME/projects/sec/massdns
 FOLDER=domains/resolved
 
 mkdir -p ${FOLDER}/
@@ -65,6 +63,8 @@ massdns_result(){
 # Gave up right away if ROOT domain or subdomain returns SERVFAIL
 does_servfail "${DOMAIN}" && { echoerr "servfail"; exit 1; }
 
+# TODO: addback some sort of "purify" deleting NX branches
+#       but keeping log of the NX on edges
 # Adds RAW subdomains found in the same "project"
 mapfile -t domains < <({ grepsubdomain ${DOMAIN}; get_subs; } \
                            | sed 's#$#.'"${DOMAIN}"'#g' \
@@ -95,6 +95,10 @@ resolved_domains "${DOMAIN}" \
 # Remove wildcards
 mapfile -t domains < <(resolved_domains_nowildcard ${DOMAIN})
 
+notify-send -t 15000 \
+            "Massdns of other for ${DOMAIN}" \
+            "of $(printfnumber ${#domains[@]}) subdomains..."
+
 # If any NOERROR, try other records
 if [[ ${#domains[@]} -gt 0 ]]; then
     massdns AAAA  "${domains[@]}"
@@ -103,3 +107,5 @@ if [[ ${#domains[@]} -gt 0 ]]; then
     massdns TXT   "${domains[@]}"
 fi
 # TODO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
+
+echo "${0##*/} is DONE!"
