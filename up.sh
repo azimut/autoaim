@@ -24,6 +24,7 @@ SCRIPTS=(
 nmap_alive(){
     local ip=${1}
     local filename=../ips/${ip}/alive${DATE}
+    mkdir -p ../ips/${ip}
     sudo $NMAP -n \
          -sn \
          -PE -PS80,443 -PA80 -PP \
