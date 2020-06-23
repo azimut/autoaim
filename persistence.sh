@@ -120,7 +120,10 @@ AS \$$
 INSERT INTO dns_record(name, root, sub, qtype, rtype, rcode, data)
 SELECT LOWER(newdomain),
        LOWER(newroot),
-       SUBSTR(LOWER(newdomain),1,LENGTH(newdomain)-LENGTH(newroot)-1),
+       CASE
+         WHEN LOWER(newdomain)=LOWER(newroot) THEN LOWER(newdomain)
+         ELSE SUBSTR(LOWER(newdomain),1,LENGTH(newdomain)-LENGTH(newroot)-1)
+       END,
        UPPER(newqtype),
        newrtype,
        newrcode,
@@ -145,7 +148,10 @@ AS \$$
 INSERT INTO dns_record(name, root, sub, qtype, rtype, rcode, ip)
 SELECT LOWER(newdomain),
        LOWER(newroot),
-       SUBSTR(LOWER(newdomain),1,LENGTH(newdomain)-LENGTH(newroot)-1),
+       CASE
+         WHEN LOWER(newdomain)=LOWER(newroot) THEN LOWER(newdomain)
+         ELSE SUBSTR(LOWER(newdomain),1,LENGTH(newdomain)-LENGTH(newroot)-1)
+       END,
        UPPER(newqtype),
        newrtype,
        newrcode,
@@ -350,7 +356,7 @@ dns_weird(){
 }
 rm_nxdomain(){
     local root="${1}"
-    grep -F -v -f <(dns_nxdomain "${root}") < /dev/stdin
+    grep -F -v -f <(dns_nxdomain "${root}" | trim | uncomment) < /dev/stdin
 }
 #------------------------------
 resolved_hosts(){
@@ -430,7 +436,8 @@ resolved_domains_wildcard(){
 }
 rm_resolved_wildcards(){
     local root="${1}"
-    grep -F -v -f <(resolved_domains_wildcard "${root}") < /dev/stdin
+    grep -F -v -f <(resolved_domains_wildcard "${root}"|trim|uncomment) \
+         < /dev/stdin
 }
 #------------------------------
 add_ip_data(){
