@@ -1,5 +1,7 @@
 #!/bin/bash
 
+RESOLVERS=$HOME/projects/sec/autoaim/resolvers.txt
+
 #==================================================
 # Pure - Non env dependent
 #==================================================
@@ -59,6 +61,30 @@ is_port_open(){
     local host="${2}"
     nmap -sT -n -oG - -p"${port}" "${host}" \
         | grep -F /open/
+}
+jq_inline(){
+    local filter=""
+    filter=' . | select(.class == "IN")'
+    filter+='| (.name|rtrimstr("."))'
+    filter+='+ " " + .status + " " + '
+    filter+='if .data.answers then (.data.answers[] | { type, data } | join(" "))
+             else "   " end'
+    jq -r "${filter}" < /dev/stdin
+}
+massdns_inline(){
+    local domain="${1}"
+    local type="${2}"
+    local concurrency="${3:-20}"
+    $MASSDNS/bin/massdns -s ${concurrency} \
+                         --retry SERVFAIL,REFUSED \
+                         -c 25 \
+                         -o J \
+                         -t ${type} \
+                         -r ${RESOLVERS} \
+                         -w /dev/stdout \
+                         /dev/stdin \
+        | jq_inline "${type}" \
+        | tee >(add_dns "${domain}" "${type}")
 }
 #==================================================
 # Impure - Depends on file
