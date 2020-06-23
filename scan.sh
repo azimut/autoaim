@@ -2,18 +2,17 @@
 
 set -exuo pipefail
 
+DOMAIN=${1:-${PWD##*/}}
+
 NMAP_PARSE=$HOME/projects/sec/nmap-parse-output/nmap-parse-output
 BING=$HOME/projects/sec/bing-ip2hosts/bing-ip2hosts
 NMAP=/usr/local/bin/nmap
 
-# Assummes this in /etc/sudoers, where username is your username
+. ${HOME}/projects/sec/autoaim/helpers.sh
+. ${HOME}/projects/sec/autoaim/persistence.sh
+
+# Assummes nmap in /etc/sudoers, where username is your username
 # username ALL = NOPASSWD: /usr/bin/nmap
-trim(){ awk '{$1=$1};1' /dev/stdin; }
-uncomment(){
-    grep -v -e '^$' -e '^#' -e '^//' -e '^;;' /dev/stdin \
-        | sed -e 's/#.*$//g' \
-        | sed -e 's/;;.*$//g'
-}
 bingip2host(){
     local ip=${1}
     local folder=../ips/${ip}
@@ -87,19 +86,19 @@ nmap_tcp_version(){
              -Pn ${ip}
     fi
 }
-if [[ -s data/ips.txt ]]; then
+if [[ -s ips.txt ]]; then
     while read -r ip ; do
         if [[ -f ../ips/${ip}/up ]]; then
             nmap_udp_20   ${ip}
             nmap_tcp_fast ${ip}
             bingip2host   ${ip}
         fi
-    done < data/ips.txt
+    done < ips.txt
     while read -r ip ; do
         if [[ -f ../ips/${ip}/full ]]; then
             nmap_tcp_full    ${ip}
             nmap_tcp_version ${ip}
         fi
-    done < data/ips.txt
+    done < ips.txt
 fi
 
