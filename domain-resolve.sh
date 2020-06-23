@@ -9,6 +9,8 @@ RESOLVERS=$HOME/projects/sec/autoaim/resolvers.txt
 MASSDNS=$HOME/projects/sec/massdns
 FOLDER=domains/resolved
 
+mkdir -p ${FOLDER}/
+
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
 
@@ -45,7 +47,6 @@ does_servfail(){
     return 1
 }
 
-# TODO: add CNAME in massdns query
 massdns_result(){
     local record="${1}"
     local file=domains/resolved/${record,,}_${DOMAIN}.json.gz
@@ -70,11 +71,8 @@ mapfile -t domains < <({ grepsubdomain ${DOMAIN}; get_subs; } \
                            | unify \
                            | sed 's#$#.'"${DOMAIN}"'#g' \
                            | rm_nxdomain ${DOMAIN} \
-                           | purify \
-                           | grep -F ${DOMAIN} \
-                           | rm_nxdomain ${DOMAIN} \
-                           | rm_resolved_wildcards ${DOMAIN})
-
+                           | rm_resolved_wildcards ${DOMAIN} \
+                           | grep -F ${DOMAIN})
 domains+=("${DOMAIN}") # add root domain
 
 notify-send -t 15000 \
