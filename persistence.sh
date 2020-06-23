@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS ${IP_HISTORY}(
     is_up     BOOLEAN);
 --------------------
 DROP PROCEDURE IF EXISTS insert_ip_ptr;
-CREATE PROCEDURE insert_ip_ptr(newip INET, newptr VARCHAR)
+CREATE PROCEDURE insert_ip_ptr(newip  INET,
+                               newptr VARCHAR)
 LANGUAGE SQL
 AS \$$
 INSERT INTO ip_ptr(ip, ptr)
@@ -69,7 +70,9 @@ WHERE NOT EXISTS (
 \$$;
 --------------------
 DROP PROCEDURE IF EXISTS insert_ip_data;
-CREATE PROCEDURE insert_ip_data(newip INET, newcidr CIDR, newasn VARCHAR)
+CREATE PROCEDURE insert_ip_data(newip   INET,
+                                newcidr CIDR,
+                                newasn  VARCHAR)
 LANGUAGE SQL
 AS \$$
 INSERT INTO ${IP_DATA}(ip, cidr, asn)
@@ -115,7 +118,13 @@ CREATE PROCEDURE add_dns(newdomain VARCHAR,
 LANGUAGE SQL
 AS \$$
 INSERT INTO dns_record(name, root, sub, qtype, rtype, rcode, data)
-SELECT LOWER(newdomain), LOWER(newroot), SUBSTR(LOWER(newdomain),1,LENGTH(newdomain)-LENGTH(newroot)-1), UPPER(newqtype), newrtype, newrcode, newdata
+SELECT LOWER(newdomain),
+       LOWER(newroot),
+       SUBSTR(LOWER(newdomain),1,LENGTH(newdomain)-LENGTH(newroot)-1),
+       UPPER(newqtype),
+       newrtype,
+       newrcode,
+       newdata
 WHERE NOT EXISTS (
     SELECT 1
     FROM dns_record
@@ -134,7 +143,13 @@ CREATE PROCEDURE add_dns(newdomain VARCHAR,
 LANGUAGE SQL
 AS \$$
 INSERT INTO dns_record(name, root, sub, qtype, rtype, rcode, ip)
-SELECT LOWER(newdomain), LOWER(newroot), SUBSTR(LOWER(newdomain),1,LENGTH(newdomain)-LENGTH(newroot)-1), UPPER(newqtype), newrtype, newrcode, newip
+SELECT LOWER(newdomain),
+       LOWER(newroot),
+       SUBSTR(LOWER(newdomain),1,LENGTH(newdomain)-LENGTH(newroot)-1),
+       UPPER(newqtype),
+       newrtype,
+       newrcode,
+       newip
 WHERE NOT EXISTS (
     SELECT 1
     FROM dns_record
@@ -335,7 +350,7 @@ dns_weird(){
 }
 rm_nxdomain(){
     local root="${1}"
-    grep -v -f <(dns_nxdomain "${root}") < /dev/stdin
+    grep -F -v -f <(dns_nxdomain "${root}") < /dev/stdin
 }
 #------------------------------
 resolved_hosts(){
@@ -397,6 +412,25 @@ resolved_domains_nowildcard(){
               AND SUBSTR(reduced.name,LENGTH(reduced.name)-LENGTH(w.base)+1)=w.base
           WHERE w.ip IS NULL
 " | psql -U postgres -t -A
+}
+resolved_domains_wildcard(){
+    local root="${1}"
+    echo "SELECT reduced.name
+          FROM (SELECT d.name, d.ip
+                FROM dns_record d
+                WHERE d.root='${root}'
+                  AND d.qtype='A'
+                  AND d.rcode='NOERROR'
+                  AND d.ip IS NOT NULL) reduced
+          RIGHT JOIN dns_a_wildcard w
+              ON  reduced.ip=w.ip
+              AND reduced.name!=w.base
+              AND SUBSTR(reduced.name,LENGTH(reduced.name)-LENGTH(w.base)+1)=w.base" \
+                  | psql -U postgres -t -A
+}
+rm_resolved_wildcards(){
+    local root="${1}"
+    grep -F -v -f <(resolved_domains_wildcard "${root}") < /dev/stdin
 }
 #------------------------------
 add_ip_data(){
