@@ -2,22 +2,35 @@
 
 # TODO: IPs might be should be global (not per schema)
 # TODO: save subdomain, domain and SLD+TLD separate
+# TODO: add name resolve queries of NS MX to dns_rec
+# TODO: rm downip and upip in favor of insert_ip(ip,status)
 set -xu
 
 IP_HISTORY='ip_history'
 IP_DATA='ip_data'
 
-cleardb(){
-    echo "
-DROP TABLE IF EXISTS dns_a_wildcard;
-DROP TABLE IF EXISTS dns_record;
-DROP TABLE IF EXISTS ip_ptr;
-DROP TABLE IF EXISTS ${IP_DATA};
-DROP TABLE IF EXISTS ${IP_HISTORY};
-" | psql -U postgres
-}
+# cleardb(){
+#     echo "
+# DROP TABLE IF EXISTS nmap_scan;
+# DROP TABLE IF EXISTS dns_a_wildcard;
+# DROP TABLE IF EXISTS dns_record;
+# DROP TABLE IF EXISTS ip_ptr;
+# DROP TABLE IF EXISTS ${IP_DATA};
+# DROP TABLE IF EXISTS ${IP_HISTORY};
+# " | psql -U postgres
+# }
 initdb(){
     template="""
+CREATE TABLE IF NOT EXISTS nmap_scan(
+    timestamp TIMESTAMP DEFAULT NOW(),
+    ip        INET NOT NULL,
+    host      VARCHAR(256),
+    pstatus   VARCHAR(8),
+    proto     VARCHAR(8),
+    port      INTEGER,
+    service   VARCHAR(32),
+    finger    VARCHAR(32)
+);
 CREATE TABLE IF NOT EXISTS dns_a_wildcard(
     base      VARCHAR(256) NOT NULL,
     root      VARCHAR(256) NOT NULL,
@@ -156,7 +169,7 @@ WHERE NOT EXISTS (
     WHERE name=newdomain
     AND root=newroot
     AND rcode=newrcode
-    AND data=newdata);
+    AND ((data IS NULL AND newdata IS NULL) OR data=newdata));
 \$$;
 DROP PROCEDURE IF EXISTS add_dns(varchar,varchar,varchar,varchar,varchar,inet);
 CREATE PROCEDURE add_dns(newdomain VARCHAR,
@@ -184,9 +197,12 @@ WHERE NOT EXISTS (
     WHERE name=newdomain
     AND root=newroot
     AND rcode=newrcode
-    AND ip=newip);
+    AND ((ip IS NULL AND newip IS NULL) OR ip=newip));
 \$$;
 --------------------
+DROP PROCEDURE IF EXISTS insert_ip(inet, boolean, timestamp);
+DROP PROCEDURE IF EXISTS insert_ip(inet, boolean);
+DROP PROCEDURE IF EXISTS insert_ip(inet);
 DROP PROCEDURE IF EXISTS insert_ip;
 CREATE PROCEDURE insert_ip(newip INET)
 LANGUAGE SQL
@@ -197,6 +213,36 @@ WHERE NOT EXISTS (
     SELECT 1
     FROM ${IP_HISTORY}
     WHERE ip=newip);
+\$$;
+CREATE PROCEDURE insert_ip(newip INET, state BOOLEAN)
+LANGUAGE SQL
+AS \$$
+INSERT INTO ${IP_HISTORY}(ip,is_up)
+SELECT newip, state
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM (
+        SELECT ip, max(timestamp) as maxtime
+        FROM ${IP_HISTORY}
+        WHERE ip=newip
+        GROUP BY ip
+    ) recent,
+    ${IP_HISTORY} original
+    WHERE original.ip=recent.ip
+    AND recent.maxtime=original.timestamp
+    AND original.is_up=state);
+\$$;
+CREATE PROCEDURE insert_ip(newip INET, state BOOLEAN, newtime TIMESTAMP WITH TIME ZONE)
+LANGUAGE SQL
+AS \$$
+INSERT INTO ${IP_HISTORY}(ip,is_up,timestamp)
+SELECT newip, state, newtime
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM ${IP_HISTORY}
+    WHERE ip=newip
+      AND timestamp=newtime
+      AND is_up=state);
 \$$;
 --------------------
 DROP PROCEDURE IF EXISTS insert_upip;
@@ -236,6 +282,66 @@ WHERE NOT EXISTS (
     WHERE original.ip=recent.ip
     AND recent.maxtime=original.timestamp
     AND original.is_up=false);
+\$$;
+------------------------------
+-- # time hstatus ip host pstatus proto port service finger
+DROP PROCEDURE IF EXISTS insert_scan(integer,boolean,inet,varchar,varchar,varchar,integer,varchar,varchar);
+CREATE PROCEDURE insert_scan(newtimestamp  INTEGER,
+                             newhstatus    BOOLEAN,
+                             newip         INET,
+                             newhost       VARCHAR,
+                             newpstatus    VARCHAR,
+                             newproto      VARCHAR,
+                             newport       INTEGER,
+                             newservice    VARCHAR,
+                             newfinger     VARCHAR)
+LANGUAGE SQL
+AS \$$
+CALL insert_ip(newip, newhstatus, TO_TIMESTAMP(newtimestamp));
+INSERT INTO nmap_scan(timestamp, ip, host,
+                      pstatus, proto, port, service, finger)
+SELECT TO_TIMESTAMP(newtimestamp), newip, newhost,
+      newpstatus, newproto, newport, newservice, newfinger
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM (
+      SELECT ip, max(timestamp) as maxtime
+      FROM nmap_scan
+      WHERE ip=newip
+        AND host=newhost
+        AND port=newport
+      GROUP BY ip) recent,
+    nmap_scan original
+    WHERE original.ip=recent.ip AND original.timestamp=recent.maxtime
+      AND host=newhost
+      AND pstatus=newpstatus
+      AND proto=newproto
+      AND port=newport
+      AND ((service IS NULL AND newservice IS NULL) OR service=newservice)
+      AND ((finger IS NULL AND newfinger IS NULL) OR finger=newfinger));
+\$$;
+DROP PROCEDURE IF EXISTS insert_scan(integer,boolean,inet,varchar);
+CREATE PROCEDURE insert_scan(newtimestamp INTEGER,
+                             newhstatus   BOOLEAN,
+                             newip        INET,
+                             newhost      VARCHAR)
+LANGUAGE SQL
+AS \$$
+CALL insert_ip(newip, newhstatus, TO_TIMESTAMP(newtimestamp));
+INSERT INTO nmap_scan(timestamp, ip, host)
+SELECT TO_TIMESTAMP(newtimestamp), newip, newhost
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM (
+      SELECT ip, max(timestamp) as maxtime
+      FROM nmap_scan
+      WHERE ip=newip
+        AND host=newhost
+      GROUP BY ip) recent,
+    nmap_scan original
+    WHERE original.ip=recent.ip
+      AND original.timestamp=recent.maxtime
+      AND host=newhost);
 \$$;
 """
     echo "${template}" | psql -U postgres
@@ -512,4 +618,24 @@ add_ip_reverse(){
         ret+=$'\n'
     done
     echo "${ret}" | psql -U postgres | grep -c CALL || true
+}
+#------------------------------
+add_scan(){
+    local ret=""
+    while IFS='|' read -r time hstatus ip host pstatus proto port service finger; do
+        [[ ${hstatus} == "up" ]] && hstatus='TRUE' || hstatus='FALSE'
+        [[ -z ${service}      ]] && service='NULL' || service="'${service}'"
+        [[ -z ${finger}       ]] && finger='NULL'  || finger="'${finger}'"
+
+        ret+="CALL insert_scan(${time},${hstatus},INET '${ip}','${host}'"
+        if [[ -n ${pstatus} ]]; then
+            ret+=",'${pstatus}','${proto}',${port},${service},${finger}"
+        fi
+        ret+=');'; ret+=$'\n'
+    done
+    echo "${ret}" | psql -U postgres -t -A | grep -F -c CALL || true
+}
+add_scan_file(){
+    local file="${1}"
+    echo "${file}" | nthmap | add_scan
 }

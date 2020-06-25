@@ -20,14 +20,28 @@ nmap_ext(){
 
 nmap_mx(){
     local mx=${1}
-    local file=../mx/${mx}/nmap
-    if [[ ! -f ${file}.nmap ]]; then
+    local file
+    file=../mx/${mx}/nmap6
+    isvalidxml "${file}.xml" ||  rm -f "${file}.xml"
+    if [[ ! -f ${file}.xml ]]; then
+        sudo $NMAP -n \
+             -PE -PS25,465 -PA25 \
+             -v -sTV --reason \
+             -oA ${file} \
+             -F \
+             -6 \
+             --resolve-all \
+             --script='default or banner or fcrdns'"$(nmap_ext)" \
+             ${mx}
+    fi
+    file=../mx/${mx}/nmap
+    isvalidxml "${file}.xml" ||  rm -f "${file}.xml"
+    if [[ ! -f ${file}.xml ]]; then
         sudo $NMAP -n \
              -PE -PS25,465 -PA25 -PP \
              -v -sTV --reason \
              -oA ${file} \
              -F \
-             -6 \
              --resolve-all \
              --script='default or banner or fcrdns'"$(nmap_ext)" \
              ${mx}
@@ -40,4 +54,6 @@ dns_mx "${DOMAIN}" |
         mkdir -p ../mx/${mx}
         upsert_in_file ../mx/${mx}/hosts ${host}
         nmap_mx ${mx}
+        add_scan_file ../mx/${mx}/nmap.xml
+        add_scan_file ../mx/${mx}/nmap6.xml
     done
