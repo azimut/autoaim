@@ -57,3 +57,5 @@ dns_mx "${DOMAIN}" |
         add_scan_file ../mx/${mx}/nmap.xml
         add_scan_file ../mx/${mx}/nmap6.xml
     done
+
+echo "${0##*/} is DONE!"
