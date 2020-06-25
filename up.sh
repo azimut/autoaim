@@ -25,7 +25,8 @@ nmap_alive(){
     local ip=${1}
     local filename=../ips/${ip}/alive${DATE}
     mkdir -p ../ips/${ip}
-    sudo $NMAP -n \
+    sudo $NMAP \
+         -n \
          -sn \
          -PE -PS80,443 -PA80 -PP \
          -oA ${filename} \
@@ -62,29 +63,18 @@ ips_with_provider(){
 ips_up   | add_ips_up
 ips_down | add_ips_down
 
-# nmap ping check
-get_ips_unknown ${DOMAIN} |
-    while read -r ip; do
-        nmap_alive ${ip}
-    done
-
 # Add PTR
 get_ip_noptr "${DOMAIN}" | esrever \
     | add_ip_reverse
 get_ip_noptr "${DOMAIN}" | esrever | cut -f2 -d, | massdns_inline PTR \
     | add_ip_ptr
 
-mapfile -t pending < <(ips_with_provider)
-for ip in "${pending[@]}"; do
-    echo "${ip},$(cat ../ips/${ip}/cidr),$(cat ../ips/${ip}/provider)" \
-        | add_ip_data
-done
-
 # Add Provider - Ignore ips already processed
 mapfile -t pending < <(ips_without_provider)
 if [[ ${#pending[@]} -ne 0 ]]; then
     printf "%s\n" "${pending[@]}" | sunny |
         while IFS=, read -r ip cidr provider; do
+            mkdir -p ../ips/${ip}/
             cidr=${cidr// }
             provider=${provider// }
             provider=${provider//\"}
@@ -92,6 +82,20 @@ if [[ ${#pending[@]} -ne 0 ]]; then
             echo ${provider} > ../ips/${ip}/provider
         done
 fi
+
+mapfile -t pending < <(ips_with_provider)
+for ip in "${pending[@]}"; do
+    mkdir -p ../ips/${ip}/
+    echo "${ip},$(cat ../ips/${ip}/cidr),$(cat ../ips/${ip}/provider)" \
+        | add_ip_data
+done
+
+# nmap ping check
+get_ips_unknown ${DOMAIN} |
+    while read -r ip; do
+        mkdir -p ../ips/${ip}/
+        nmap_alive ${ip}
+    done
 
 ## TODO: I can't do this properly without follow CNAME's resolved, I mean...I want to target
 ##       only domains behind a cloud provider...a way could it be provide more ips to bypass
@@ -101,3 +105,5 @@ fi
 #         bash ${BYPASS} 2>&1 | tee ${ip}/bypass
 #     fi
 # fi
+
+echo "${0##*/} is DONE!"
