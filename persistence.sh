@@ -21,6 +21,20 @@ IP_DATA='ip_data'
 # }
 initdb(){
     template="""
+CREATE OR REPLACE VIEW list_upips AS
+  SELECT DISTINCT ON (current.ip) current.ip
+   FROM ( SELECT ip_history.ip,
+            max(ip_history.timestamp) AS maximus
+           FROM ip_history
+          GROUP BY ip_history.ip) recent,
+    ip_history current
+  WHERE current.ip = recent.ip AND current.timestamp = recent.maximus AND current.is_up IS TRUE;
+
+CREATE OR REPLACE VIEW list_upips_local AS
+  SELECT d.ip
+   FROM list_upips i
+     JOIN ip_data d ON i.ip = d.ip AND (d.asn IS NULL OR d.asn::text <> 'LOCAL'::text);
+
 CREATE TABLE IF NOT EXISTS nmap_scan(
     timestamp TIMESTAMP DEFAULT NOW(),
     ip        INET NOT NULL,
@@ -638,4 +652,15 @@ add_scan(){
 add_scan_file(){
     local file="${1}"
     echo "${file}" | nthmap | add_scan
+}
+# No up and no local ip. No actual checking last state.
+get_ips_up_clear(){
+    local root="${1}"
+    echo "SELECT DISTINCT ON (d.ip) d.ip
+          FROM list_upips_local l
+          LEFT JOIN dns_record d
+            ON l.ip=d.ip
+          WHERE d.root='${root}'
+            AND l.ip IS NOT NULL" \
+                | psql -U postgres -At
 }
