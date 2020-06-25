@@ -327,7 +327,7 @@ WHERE NOT EXISTS (
       GROUP BY ip) recent,
     nmap_scan original
     WHERE original.ip=recent.ip AND original.timestamp=recent.maxtime
-      AND host=newhost
+      AND ((host IS NULL AND newhost IS NULL) OR host=newhost)
       AND pstatus=newpstatus
       AND proto=newproto
       AND port=newport
@@ -355,7 +355,7 @@ WHERE NOT EXISTS (
     nmap_scan original
     WHERE original.ip=recent.ip
       AND original.timestamp=recent.maxtime
-      AND host=newhost);
+      AND ((host IS NULL AND newhost IS NULL) OR host=newhost));
 \$$;
 """
     echo "${template}" | psql -U postgres
@@ -428,16 +428,15 @@ add_dns(){
     local ret=""
     while read -r domain rcode rtype ipordata; do
         if [[ ${qtype} == "${rtype}" ]] && [[ ${rtype} == "A" || ${rtype} == "AAAA" ]]; then
-            [[ -z ${ipordata} ]] && ipordata=NULL || ipordata="'${ipordata}'"
-            [[ -z ${rtype}    ]] && rtype=NULL    || rtype="'${rtype}'"
-            ret+="CALL add_dns('${domain}','${root}','${qtype}',${rtype},'${rcode}',INET ${ipordata});
-"
+            ipordata="$(purge "${ipordata}")"
+            rtype="$(purge "${rtype}")"
+            ret+="CALL add_dns('${domain}','${root}','${qtype}',${rtype},'${rcode}',INET ${ipordata});"
+            ret+=$'\n'
         else
-            [[ -z ${ipordata} ]] && ipordata=NULL || ipordata="'${ipordata}'"
-            [[ -z ${rtype}    ]] && rtype=NULL    || rtype="'${rtype}'"
-
-            ret+="CALL add_dns('${domain}','${root}','${qtype}',${rtype},'${rcode}',${ipordata});
-"
+            ipordata="$(purge "${ipordata}")"
+            rtype="$(purge "${rtype}")"
+            ret+="CALL add_dns('${domain}','${root}','${qtype}',${rtype},'${rcode}',${ipordata});"
+            ret+=$'\n'
         fi
     done
     echo -n "${ret}" | psql -U postgres | grep -c CALL || true
@@ -585,9 +584,9 @@ rm_resolved_wildcards(){
 add_ip_data(){
     local ret=""
     while IFS=, read -r ip cidr asn; do
-        [[ -z ${cidr} ]] && cidr='NULL' || cidr="CIDR '${cidr}'"
-        [[ -z ${asn}  ]] && asn='NULL'  || asn="'${asn}'"
-        ret+="CALL insert_ip_data(INET '${ip}', ${cidr}, ${asn});"
+        cidr="$(purge "${cidr}")"
+        asn="$(purge "${asn}")"
+        ret+="CALL insert_ip_data(INET '${ip}', CIDR ${cidr}, ${asn});"
         ret+=$'\n'
     done
     echo "${ret}" | psql -U postgres | grep -c CALL || true
@@ -596,7 +595,7 @@ add_ip_data(){
 add_ip_ptr(){
     local ret=""
     while read -r rdomain rcode _ ptr; do
-        [[ -z ${ptr} ]] && ptr='NULL' || ptr="'${ptr}'"
+        ptr="$(purge "${ptr}")"
         ret+="CALL insert_ip_ptr('${rdomain}','${rcode}',${ptr});"
         ret+=$'\n'
     done
@@ -634,14 +633,23 @@ add_ip_reverse(){
     echo "${ret}" | psql -U postgres | grep -c CALL || true
 }
 #------------------------------
+# CALL insert_scan(1593109546,TRUE,INET '\''23.47.107.164'\'','\'' '\'','\''open'\'','\''filtered'\'',udp,'\''49152'\'','\''unknown'\'');
+
+purge(){
+    local s="${1}" s2=""
+    until s2="${s#[[:space:]]}"; [ "$s2" = "$s" ]; do s="$s2"; done
+    until s2="${s%[[:space:]]}"; [ "$s2" = "$s" ]; do s="$s2"; done
+    [[ -z ${s} ]] && echo 'NULL' || echo "'${s}'"
+}
+
 add_scan(){
     local ret=""
     while IFS='|' read -r time hstatus ip host pstatus proto port service finger; do
         [[ ${hstatus} == "up" ]] && hstatus='TRUE' || hstatus='FALSE'
-        [[ -z ${service}      ]] && service='NULL' || service="'${service}'"
-        [[ -z ${finger}       ]] && finger='NULL'  || finger="'${finger}'"
-
-        ret+="CALL insert_scan(${time},${hstatus},INET '${ip}','${host}'"
+        service="$(purge "${service}")"
+        finger="$(purge "${finger}")"
+        host="$(purge "${host}")"
+        ret+="CALL insert_scan(${time},${hstatus},INET '${ip}',${host}"
         if [[ -n ${pstatus} ]]; then
             ret+=",'${pstatus}','${proto}',${port},${service},${finger}"
         fi
