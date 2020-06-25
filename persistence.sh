@@ -633,8 +633,6 @@ add_ip_reverse(){
     echo "${ret}" | psql -U postgres | grep -c CALL || true
 }
 #------------------------------
-# CALL insert_scan(1593109546,TRUE,INET '\''23.47.107.164'\'','\'' '\'','\''open'\'','\''filtered'\'',udp,'\''49152'\'','\''unknown'\'');
-
 purge(){
     local s="${1}" s2=""
     until s2="${s#[[:space:]]}"; [ "$s2" = "$s" ]; do s="$s2"; done
@@ -644,7 +642,7 @@ purge(){
 
 add_scan(){
     local ret=""
-    while IFS='|' read -r time hstatus ip host pstatus proto port service finger; do
+    while IFS=$'\t' read -r time hstatus ip host pstatus proto port service finger; do
         [[ ${hstatus} == "up" ]] && hstatus='TRUE' || hstatus='FALSE'
         service="$(purge "${service}")"
         finger="$(purge "${finger}")"
