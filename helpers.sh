@@ -1,7 +1,7 @@
 #!/bin/bash
 
 MASSDNS=$HOME/projects/sec/massdns
-RESOLVERS=$HOME/projects/sec/autoaim/resolvers.txt
+RESOLVERS=$HOME/projects/sec/autoaim/data/resolvers.txt
 
 #==================================================
 # Pure - Non env dependent
@@ -89,8 +89,8 @@ massdns_inline(){
 # Impure - Depends on file
 #==================================================
 grepdomain(){
-    local domain="${1}"
-    grep -I -E -h -o '[-_[:alnum:]\.]+\.'"${domain}" -r . \
+    grep -E -I -h -o '[-_[:alnum:]\.]+\.'${1} -r . \
+        | sed 's/^2F//g' \
         | sed 's/^32m//g' \
         | sed 's/^253A//g' \
         | sort | uniq
@@ -117,4 +117,18 @@ grepip(){
 isvalidxml(){
     local file="${1}"
     xmllint --format "${file}" &>/dev/null
+}
+intersection(){
+    [[ $# -ne 2 ]] && { ferror "needs 2 arguments"; return 1; }
+    [[ (-f $1 || -p $1) && (-f $2 || -p $2) ]] || { ferror "arguments need to be a file"; return 1; }
+    local filea="$1"
+    local fileb="$2"
+    grep -F -xf "$filea" "$fileb"
+}
+complement(){
+    [[ $# -ne 2 ]] && { ferror "needs 2 arguments"; return 1; }
+    [[ (-f $1 || -p $1) && (-f $2 || -p $2) ]] || { ferror "arguments need to be a file"; return 1; }
+    local filea="$1"
+    local fileb="$2"
+    grep -F -vxf "$filea" "$fileb"
 }

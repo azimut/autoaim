@@ -511,12 +511,7 @@ dns_weird(){
 }
 rm_nxdomain(){
     local root="${1}"
-    if [[ $(dns_nxdomain "${root}" | trim | uncomment | wc -l) -eq 0 ]]; then
-        cat /dev/stdin
-    else
-        grep -F -vxf <(dns_nxdomain "${root}") \
-             /dev/stdin
-    fi
+    complement <(dns_nxdomain "${root}") /dev/stdin
 }
 #------------------------------
 resolved_hosts(){
@@ -593,8 +588,7 @@ resolved_domains_wildcard(){
 }
 rm_resolved_wildcards(){
     local root="${1}"
-    grep -F -vxf <(resolved_domains_wildcard "${root}"|trim|uncomment) \
-         /dev/stdin
+    complement <(resolved_domains_wildcard "${root}") /dev/stdin
 }
 #------------------------------
 add_ip_data(){
