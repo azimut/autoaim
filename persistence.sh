@@ -21,6 +21,20 @@ IP_DATA='ip_data'
 # }
 initdb(){
     template="""
+-- dns_record but latest results
+CREATE OR REPLACE VIEW recent_dns_record AS
+  SELECT current.*
+  FROM (SELECT name,qtype,MAX(timestamp) AS maximun FROM dns_record GROUP BY name,qtype) recent
+  JOIN dns_record current
+  ON current.timestamp=recent.maximun AND current.name=recent.name AND current.qtype=recent.qtype;
+
+-- IPs currently UP
+CREATE OR REPLACE VIEW newip_history AS
+  SELECT recent.maximo AS timestamp, recent.ip, current.is_up
+  FROM (SELECT ip,MAX(timestamp) maximo FROM ip_history GROUP BY ip) recent
+  JOIN ip_history current
+  ON (recent.ip=current.ip AND current.timestamp=recent.maximo);
+
 CREATE OR REPLACE VIEW list_upips AS
   SELECT DISTINCT ON (current.ip) current.ip
    FROM ( SELECT ip_history.ip,
@@ -322,17 +336,17 @@ WHERE NOT EXISTS (
       SELECT ip, max(timestamp) as maxtime
       FROM nmap_scan
       WHERE ip=newip
-        AND host=newhost
+        AND (host=newhost OR (host IS NULL AND newhost IS NULL))
         AND port=newport
       GROUP BY ip) recent,
     nmap_scan original
     WHERE original.ip=recent.ip AND original.timestamp=recent.maxtime
-      AND ((host IS NULL AND newhost IS NULL) OR host=newhost)
       AND pstatus=newpstatus
       AND proto=newproto
       AND port=newport
+      AND ((host    IS NULL AND newhost    IS NULL) OR host=newhost)
       AND ((service IS NULL AND newservice IS NULL) OR service=newservice)
-      AND ((finger IS NULL AND newfinger IS NULL) OR finger=newfinger));
+      AND ((finger  IS NULL AND newfinger  IS NULL) OR finger=newfinger));
 \$$;
 DROP PROCEDURE IF EXISTS insert_scan(integer,boolean,inet,varchar);
 CREATE PROCEDURE insert_scan(newtimestamp INTEGER,
@@ -350,7 +364,7 @@ WHERE NOT EXISTS (
       SELECT ip, max(timestamp) as maxtime
       FROM nmap_scan
       WHERE ip=newip
-        AND host=newhost
+        AND (host=newhost OR (host IS NULL AND newhost IS NULL))
       GROUP BY ip) recent,
     nmap_scan original
     WHERE original.ip=recent.ip
@@ -497,7 +511,12 @@ dns_weird(){
 }
 rm_nxdomain(){
     local root="${1}"
-    grep -F -v -f <(dns_nxdomain "${root}" | trim | uncomment) < /dev/stdin
+    if [[ $(dns_nxdomain "${root}" | trim | uncomment | wc -l) -eq 0 ]]; then
+        cat /dev/stdin
+    else
+        grep -F -vxf <(dns_nxdomain "${root}") \
+             /dev/stdin
+    fi
 }
 #------------------------------
 resolved_hosts(){
@@ -513,25 +532,22 @@ resolved_hosts(){
 }
 resolved_domains(){
     local root="${1}"
-    echo "SELECT name
+    echo "SELECT DISTINCT ON(name) name
           FROM dns_record
           WHERE qtype='A'
             AND qtype=rtype
             AND root='${root}'
-            AND rcode='NOERROR'
-            AND ip IS NOT NULL
-          GROUP BY name" | psql -U postgres -t -A
+            AND (rcode NOT IN ('NOERROR','NXDOMAIN') OR (rcode='NOERROR' AND ip IS NOT NULL))" | psql -U postgres -t -A | trim | uncomment
 }
 resolved_ips(){
     local root="${1}"
-    echo "SELECT ip
+    echo "SELECT DISTINCT ON(ip) ip
           FROM dns_record
           WHERE qtype='A'
             AND qtype=rtype
             AND root='${root}'
             AND rcode='NOERROR'
-            AND ip IS NOT NULL
-          GROUP BY ip" | psql -U postgres -t -A
+            AND ip IS NOT NULL" | psql -U postgres -t -A | trim | uncomment
 }
 #------------------------------
 dns_add_wildcard(){
@@ -558,7 +574,7 @@ resolved_domains_nowildcard(){
               AND reduced.name!=w.base
               AND SUBSTR(reduced.name,LENGTH(reduced.name)-LENGTH(w.base)+1)=w.base
           WHERE w.ip IS NULL
-" | psql -U postgres -t -A
+" | psql -U postgres -t -A | trim | uncomment
 }
 resolved_domains_wildcard(){
     local root="${1}"
@@ -573,12 +589,12 @@ resolved_domains_wildcard(){
               ON  reduced.ip=w.ip
               AND reduced.name!=w.base
               AND SUBSTR(reduced.name,LENGTH(reduced.name)-LENGTH(w.base)+1)=w.base" \
-                  | psql -U postgres -t -A
+                  | psql -U postgres -t -A | trim | uncomment
 }
 rm_resolved_wildcards(){
     local root="${1}"
-    grep -F -v -f <(resolved_domains_wildcard "${root}"|trim|uncomment) \
-         < /dev/stdin
+    grep -F -vxf <(resolved_domains_wildcard "${root}"|trim|uncomment) \
+         /dev/stdin
 }
 #------------------------------
 add_ip_data(){
@@ -657,7 +673,9 @@ add_scan(){
 }
 add_scan_file(){
     local file="${1}"
-    echo "${file}" | nthmap | add_scan
+    if [[ -f ${file} ]]; then
+        echo "${file}" | nthmap | add_scan
+    fi
 }
 # No up and no local ip. No actual checking last state.
 get_ips_up_clear(){
@@ -669,4 +687,10 @@ get_ips_up_clear(){
           WHERE d.root='${root}'
             AND l.ip IS NOT NULL" \
                 | psql -U postgres -At
+}
+get_all_down_ips(){
+    echo "SELECT DISTINCT ON (ip) ip
+          FROM newip_history
+          WHERE is_up IS FALSE" \
+              | psql -U postgres -t -A
 }
