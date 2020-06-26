@@ -125,3 +125,4 @@ get_ips_up_clear "${DOMAIN}" |
 #     fi
 # done < ips.txt
 
+echo "${0##*/} is DONE!"
