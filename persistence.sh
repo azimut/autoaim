@@ -377,17 +377,17 @@ WHERE NOT EXISTS (
 #------------------------------
 add_ips() {
     local ret=""
-    while read -r ip; do ret+="CALL insert_ip('${ip}');"; done
+    while read -r ip; do ret+="CALL insert_ip('${ip}');"    ; ret+=$'\n'; done
     echo "${ret}" | psql -U postgres | grep -c CALL || true
 }
 add_ips_up() {
     local ret=""
-    while read -r ip; do ret+="CALL insert_upip('${ip}');"; done
+    while read -r ip; do ret+="CALL insert_upip('${ip}');"  ; ret+=$'\n'; done
     echo "${ret}" | psql -U postgres | grep -c CALL || true
 }
 add_ips_down() {
     local ret=""
-    while read -r ip; do ret+="CALL insert_downip('${ip}');"; done
+    while read -r ip; do ret+="CALL insert_downip('${ip}');"; ret+=$'\n'; done
     echo "${ret}" | psql -U postgres | grep -c CALL || true
 }
 get_ips_up(){
@@ -507,7 +507,7 @@ dns_weird(){
             AND data IS NULL
             AND ip   IS NULL
             AND qtype='A'
-          ORDER BY name ASC;" | psql -U postgres -t -A
+          ORDER BY name ASC" | psql -U postgres -t -A
 }
 rm_nxdomain(){
     local root="${1}"
