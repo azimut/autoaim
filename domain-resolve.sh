@@ -23,11 +23,11 @@ massdns(){
         -o J \
         -t ${type} \
         -r ${RESOLVERS} \
+        -l ${output}.err \
         -w ${output} \
         /dev/stdin
     gzip -f ${output}
-    massdns_result "${type}" \
-        | add_dns "${DOMAIN}" "${type}"
+    massdns_result "${type}" | add_dns "${DOMAIN}" "${type}"
 }
 
 does_servfail(){
@@ -54,7 +54,7 @@ massdns_result(){
     filter+=' + " " + .status + " " +'
     filter+=' if .data.answers then (.data.answers[] | { type, data } | join(" ")) else "   " end'
     if [[ -f ${file} ]]; then
-        jq -r "${filter}" < <(zcat ${file})
+        jq -r "${filter}" < <(zcat ${file}) 2> jq.${record}.err
     fi
 }
 
@@ -76,15 +76,14 @@ mapfile -t domains < <({ grepsubdomain ${DOMAIN}; get_subs; } \
                            | sort | uniq \
                            | grep -F ${DOMAIN})
 domains+=("${DOMAIN}") # add root domain
-printf '%s\n' "${domains[@]}" > asdf.txt
+
 notify-send -t 15000 \
             "Massdns A for ${DOMAIN}" \
             "of $(printfnumber ${#domains[@]}) subdomains..."
 
 printf '%s\n' "${domains[@]}" \
+    | tee asdf.txt \
     | massdns A
-
-exit 0
 
 # Gather ips
 if [[ -f domains/resolved/a_${DOMAIN}.json.gz ]]; then
