@@ -14,9 +14,8 @@ mkdir -p ${FOLDER}/
 
 massdns(){
     local type=${1}
-    shift
-    local domains=("${@}")
     local output=${FOLDER}/${type,,}_${DOMAIN}.json
+    rm -f ${output}.gz
     $MASSDNS/bin/massdns \
         -s ${CONCURRENCY} \
         --retry SERVFAIL,REFUSED \
@@ -25,9 +24,10 @@ massdns(){
         -t ${type} \
         -r ${RESOLVERS} \
         -w ${output} \
-        <(printf '%s\n' "${domains[@]}" | sort | uniq)
+        /dev/stdin
     gzip -f ${output}
-    massdns_result "${type}" | add_dns "${DOMAIN}" "${type}"
+    massdns_result "${type}" \
+        | add_dns "${DOMAIN}" "${type}"
 }
 
 does_servfail(){
@@ -67,19 +67,24 @@ does_servfail "${DOMAIN}" && { echoerr "servfail"; exit 1; }
 #       but keeping log of the NX on edges
 # Adds RAW subdomains found in the same "project"
 mapfile -t domains < <({ grepsubdomain ${DOMAIN}; get_subs; } \
-                           | sed 's#$#.'"${DOMAIN}"'#g' \
+                           | sed 's#$#.'${DOMAIN}'#g'\
                            | unify \
-                           | sed 's#$#.'"${DOMAIN}"'#g' \
+                           | sed 's#.'${DOMAIN}'$##g' \
+                           | sed 's#$#.'${DOMAIN}'#g' \
                            | rm_nxdomain ${DOMAIN} \
                            | rm_resolved_wildcards ${DOMAIN} \
+                           | sort | uniq \
                            | grep -F ${DOMAIN})
 domains+=("${DOMAIN}") # add root domain
-
+printf '%s\n' "${domains[@]}" > asdf.txt
 notify-send -t 15000 \
             "Massdns A for ${DOMAIN}" \
             "of $(printfnumber ${#domains[@]}) subdomains..."
 
-massdns A "${domains[@]}"
+printf '%s\n' "${domains[@]}" \
+    | massdns A
+
+exit 0
 
 # Gather ips
 if [[ -f domains/resolved/a_${DOMAIN}.json.gz ]]; then
@@ -89,6 +94,8 @@ fi
 
 # Load wildcards
 resolved_domains "${DOMAIN}" \
+    | rm_nxdomain ${DOMAIN} \
+    | rm_resolved_wildcards ${DOMAIN} \
     | wildify \
     | dns_add_wildcard "${DOMAIN}"
 
@@ -101,10 +108,10 @@ notify-send -t 15000 \
 
 # If any NOERROR, try other records
 if [[ ${#domains[@]} -gt 0 ]]; then
-    massdns AAAA  "${domains[@]}"
-    massdns NS    "${domains[@]}"
-    massdns MX    "${domains[@]}"
-    massdns TXT   "${domains[@]}"
+    printf '%s\n' "${domains[@]}" | massdns AAAA
+    printf '%s\n' "${domains[@]}" | massdns NS
+    printf '%s\n' "${domains[@]}" | massdns MX
+    printf '%s\n' "${domains[@]}" | massdns TXT
 fi
 # TODO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
 

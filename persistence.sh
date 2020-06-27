@@ -193,7 +193,7 @@ SELECT LOWER(newdomain),
        newdata
 WHERE NOT EXISTS (
     SELECT 1
-    FROM dns_record
+    FROM recent_dns_record
     WHERE name=newdomain
     AND root=newroot
     AND rcode=newrcode
@@ -221,7 +221,7 @@ SELECT LOWER(newdomain),
        newip
 WHERE NOT EXISTS (
     SELECT 1
-    FROM dns_record
+    FROM recent_dns_record
     WHERE name=newdomain
     AND root=newroot
     AND rcode=newrcode
