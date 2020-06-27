@@ -8,6 +8,14 @@ set -xu
 
 IP_HISTORY='ip_history'
 IP_DATA='ip_data'
+DB=${DB:-postgres}
+
+praw(){
+    psql -U postgres -d ${DB} -t -A < /dev/stdin
+}
+pcall(){
+    psql -U postgres -d ${DB} < /dev/stdin | grep -F -c CALL || true
+}
 
 # cleardb(){
 #     echo "
@@ -372,23 +380,23 @@ WHERE NOT EXISTS (
       AND ((host IS NULL AND newhost IS NULL) OR host=newhost));
 \$$;
 """
-    echo "${template}" | psql -U postgres
+    echo "${template}" | praw
 }
 #------------------------------
 add_ips() {
     local ret=""
     while read -r ip; do ret+="CALL insert_ip('${ip}');"    ; ret+=$'\n'; done
-    echo "${ret}" | psql -U postgres | grep -c CALL || true
+    echo "${ret}" | pcall
 }
 add_ips_up() {
     local ret=""
     while read -r ip; do ret+="CALL insert_upip('${ip}');"  ; ret+=$'\n'; done
-    echo "${ret}" | psql -U postgres | grep -c CALL || true
+    echo "${ret}" | pcall
 }
 add_ips_down() {
     local ret=""
     while read -r ip; do ret+="CALL insert_downip('${ip}');"; ret+=$'\n'; done
-    echo "${ret}" | psql -U postgres | grep -c CALL || true
+    echo "${ret}" | pcall
 }
 get_ips_up(){
     local root="${1}"
@@ -402,7 +410,7 @@ get_ips_up(){
 WHERE original.timestamp=recent.mtime
   AND original.ip=recent.ip
   AND original.is_up=true;
-" | psql -U postgres -t -A
+" | praw
 }
 get_ips_down(){
     local root="${1}"
@@ -416,7 +424,7 @@ get_ips_down(){
 WHERE original.timestamp=recent.mtime
   AND original.ip=recent.ip
   AND original.is_up=false;
-" | psql -U postgres -t -A
+" | praw
 }
 get_ips_unknown(){
     local root="${1}"
@@ -430,10 +438,10 @@ get_ips_unknown(){
 WHERE original.timestamp=recent.mtime
   AND original.ip=recent.ip
   AND original.is_up IS NULL;
-" | psql -U postgres -t -A
+" | praw
 }
 get_subs(){
-    echo "SELECT DISTINCT ON (sub) sub FROM dns_record" | psql -U postgres -t -A
+    echo "SELECT DISTINCT ON (sub) sub FROM dns_record" | praw
 }
 #------------------------------
 add_dns(){
@@ -453,7 +461,7 @@ add_dns(){
             ret+=$'\n'
         fi
     done
-    echo -n "${ret}" | psql -U postgres | grep -c CALL || true
+    echo "${ret}" | pcall
 }
 dns_nxdomain(){
     local root="${1}"
@@ -461,7 +469,7 @@ dns_nxdomain(){
           FROM dns_record
           WHERE qtype='A'
             AND rcode='NXDOMAIN'
-            AND root='${root}'" | psql -U postgres -t -A
+            AND root='${root}'" | praw
 }
 dns_noerror(){
     local root="${1}"
@@ -470,7 +478,7 @@ dns_noerror(){
           WHERE qtype='A'
             AND rcode='NOERROR'
             AND root='${root}'
-            AND ip IS NOT NULL" | psql -U postgres -t -A
+            AND ip IS NOT NULL" | praw
 }
 dns_ns(){
     local root="${1}"
@@ -478,7 +486,7 @@ dns_ns(){
           FROM dns_record
           WHERE root='${root}'
             AND qtype=rtype
-            AND qtype='NS'" | psql -U postgres -t -A
+            AND qtype='NS'" | praw
 }
 dns_mx(){
     local root="${1}"
@@ -486,7 +494,7 @@ dns_mx(){
           FROM dns_record
           WHERE root='${root}'
             AND qtype=rtype
-            AND qtype='MX'" | psql -U postgres -t -A
+            AND qtype='MX'" | praw
 }
 dns_cname() {
     local root="${1}"
@@ -494,7 +502,7 @@ dns_cname() {
           FROM dns_record
           WHERE root='${root}'
             AND rtype='CNAME'
-          GROUP BY data" | psql -U postgres -t -A
+          GROUP BY data" | praw
 }
 # TODO: needs to check for already know subdomains might be
 # Things that return NOERROR, either:
@@ -507,11 +515,11 @@ dns_weird(){
             AND data IS NULL
             AND ip   IS NULL
             AND qtype='A'
-          ORDER BY name ASC" | psql -U postgres -t -A
+          ORDER BY name ASC" | praw
 }
 rm_nxdomain(){
     local root="${1}"
-    complement <(dns_nxdomain "${root}") /dev/stdin
+    complement <(dns_nxdomain "${root}" | trim | uncomment) /dev/stdin
 }
 #------------------------------
 resolved_hosts(){
@@ -523,7 +531,7 @@ resolved_hosts(){
             AND root='${root}'
             AND rcode='NOERROR'
             AND ip IS NOT NULL
-          GROUP BY name, ip" | psql -U postgres -t -A
+          GROUP BY name, ip" | praw
 }
 resolved_domains(){
     local root="${1}"
@@ -532,7 +540,7 @@ resolved_domains(){
           WHERE qtype='A'
             AND qtype=rtype
             AND root='${root}'
-            AND (rcode NOT IN ('NOERROR','NXDOMAIN') OR (rcode='NOERROR' AND ip IS NOT NULL))" | psql -U postgres -t -A | trim | uncomment
+            AND (rcode NOT IN ('NOERROR','NXDOMAIN') OR (rcode='NOERROR' AND ip IS NOT NULL))" | praw
 }
 resolved_ips(){
     local root="${1}"
@@ -542,7 +550,7 @@ resolved_ips(){
             AND qtype=rtype
             AND root='${root}'
             AND rcode='NOERROR'
-            AND ip IS NOT NULL" | psql -U postgres -t -A | trim | uncomment
+            AND ip IS NOT NULL" | praw
 }
 #------------------------------
 dns_add_wildcard(){
@@ -552,7 +560,7 @@ dns_add_wildcard(){
         ret+="CALL add_wildcard('${subdomain}','${root}', '${ip}');"
         ret+=$'\n'
     done
-    echo "${ret}" | psql -U postgres | grep -c CALL || true
+    echo "${ret}" | pcall
 }
 # TODO: check if domain is on subdomain of wildcard subdomains...
 resolved_domains_nowildcard(){
@@ -569,7 +577,7 @@ resolved_domains_nowildcard(){
               AND reduced.name!=w.base
               AND SUBSTR(reduced.name,LENGTH(reduced.name)-LENGTH(w.base)+1)=w.base
           WHERE w.ip IS NULL" \
-              | psql -U postgres -t -A | trim | uncomment
+              | praw
 }
 resolved_domains_wildcard(){
     local root="${1}"
@@ -584,11 +592,11 @@ resolved_domains_wildcard(){
               ON  reduced.ip=w.ip
               AND reduced.name!=w.base
               AND SUBSTR(reduced.name,LENGTH(reduced.name)-LENGTH(w.base)+1)=w.base" \
-                  | psql -U postgres -t -A | trim | uncomment
+                  | praw
 }
 rm_resolved_wildcards(){
     local root="${1}"
-    complement <(resolved_domains_wildcard "${root}") /dev/stdin
+    complement <(resolved_domains_wildcard "${root}" | trim | uncomment) /dev/stdin
 }
 #------------------------------
 add_ip_data(){
@@ -599,7 +607,7 @@ add_ip_data(){
         ret+="CALL insert_ip_data(INET '${ip}', CIDR ${cidr}, ${asn});"
         ret+=$'\n'
     done
-    echo "${ret}" | psql -U postgres | grep -c CALL || true
+    echo "${ret}" | pcall
 }
 # add_ip_ptr - add 1 (one) at the time
 add_ip_ptr(){
@@ -609,7 +617,7 @@ add_ip_ptr(){
         ret+="CALL insert_ip_ptr('${rdomain}','${rcode}',${ptr});"
         ret+=$'\n'
     done
-    echo "${ret}" | psql -U postgres | grep -c CALL || true
+    echo "${ret}" | pcall
 }
 get_ip_nodata(){
     local root="${1}"
@@ -622,7 +630,7 @@ get_ip_nodata(){
             AND d.qtype IN ('A', 'AAAA')
             AND d.ip IS NOT NULL
           GROUP BY d.ip" \
-              | psql -U postgres -t -A
+              | praw
 }
 get_ip_noptr(){
     local root="${1}"
@@ -632,7 +640,7 @@ get_ip_noptr(){
           AND root='${root}'
             AND d.qtype=d.rtype
             AND d.qtype IN ('A', 'AAAA')" \
-                | psql -U postgres -t -A
+                | praw
 }
 add_ip_reverse(){
     local ret=""
@@ -640,7 +648,7 @@ add_ip_reverse(){
         ret+="CALL insert_ip_reverse(INET '${ip}','${reverse}');"
         ret+=$'\n'
     done
-    echo "${ret}" | psql -U postgres | grep -c CALL || true
+    echo "${ret}" | pcall
 }
 #------------------------------
 purge(){
@@ -663,7 +671,7 @@ add_scan(){
         fi
         ret+=');'; ret+=$'\n'
     done
-    echo "${ret}" | psql -U postgres -t -A | grep -F -c CALL || true
+    echo "${ret}" | pcall
 }
 add_scan_file(){
     local file="${1}"
@@ -680,11 +688,11 @@ get_ips_up_clear(){
             ON l.ip=d.ip
           WHERE d.root='${root}'
             AND l.ip IS NOT NULL" \
-                | psql -U postgres -At
+                | praw
 }
 get_all_down_ips(){
     echo "SELECT DISTINCT ON (ip) ip
           FROM newip_history
           WHERE is_up IS FALSE" \
-              | psql -U postgres -t -A
+              | praw
 }
