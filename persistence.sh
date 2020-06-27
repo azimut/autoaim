@@ -568,8 +568,8 @@ resolved_domains_nowildcard(){
               ON  reduced.ip=w.ip
               AND reduced.name!=w.base
               AND SUBSTR(reduced.name,LENGTH(reduced.name)-LENGTH(w.base)+1)=w.base
-          WHERE w.ip IS NULL
-" | psql -U postgres -t -A | trim | uncomment
+          WHERE w.ip IS NULL" \
+              | psql -U postgres -t -A | trim | uncomment
 }
 resolved_domains_wildcard(){
     local root="${1}"
