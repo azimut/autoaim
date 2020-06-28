@@ -1,11 +1,13 @@
 #!/bin/bash
 
 MASSDNS=$HOME/projects/sec/massdns
+AUTOAIM=$HOME/projects/sec/autoaim
 RESOLVERS=$HOME/projects/sec/autoaim/data/resolvers.txt
 
 #==================================================
 # Pure - Non env dependent
 #==================================================
+prefix(){ sed 's#^#'"${1}"'#g' /dev/stdin; }
 echoerr(){
     echo "error: $*" 1>&2
 }
@@ -70,20 +72,21 @@ jq_inline(){
     filter+='+ " " + .status + " " + '
     filter+='if .data.answers then (.data.answers[] | { type, data } | join(" "))
              else "   " end'
-    jq -r "${filter}" < /dev/stdin
+    jq -r "${filter}" < /dev/stdin 2>>${HOME}/jq.err.log
 }
 massdns_inline(){
     local type="${1}"
     local concurrency="${2:-20}"
     $MASSDNS/bin/massdns -s ${concurrency} \
-                         --retry SERVFAIL,REFUSED \
+                         --retry REFUSED \
                          -c 25 \
                          -o J \
+                         -l ${HOME}/massdns.err.log \
                          -t ${type} \
                          -r ${RESOLVERS} \
                          -w /dev/stdout \
                          /dev/stdin \
-        | jq_inline "${type}"
+        | jq -r -R 'fromjson?' 2>>${HOME}/jq.err.log | jq_inline "${type}"
 }
 #==================================================
 # Impure - Depends on file
