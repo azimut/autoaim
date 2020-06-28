@@ -20,6 +20,7 @@ pcall(){
 # cleardb(){
 #     echo "
 # DROP TABLE IF EXISTS nmap_scan;
+# DROP TABLE IF EXISTS tld_records;
 # DROP TABLE IF EXISTS dns_a_wildcard;
 # DROP TABLE IF EXISTS dns_record;
 # DROP TABLE IF EXISTS ip_ptr;
@@ -29,34 +30,6 @@ pcall(){
 # }
 initdb(){
     template="""
--- dns_record but latest results
-CREATE OR REPLACE VIEW recent_dns_record AS
-  SELECT current.*
-  FROM (SELECT name,qtype,MAX(timestamp) AS maximun FROM dns_record GROUP BY name,qtype) recent
-  JOIN dns_record current
-  ON current.timestamp=recent.maximun AND current.name=recent.name AND current.qtype=recent.qtype;
-
--- IPs currently UP
-CREATE OR REPLACE VIEW newip_history AS
-  SELECT recent.maximo AS timestamp, recent.ip, current.is_up
-  FROM (SELECT ip,MAX(timestamp) maximo FROM ip_history GROUP BY ip) recent
-  JOIN ip_history current
-  ON (recent.ip=current.ip AND current.timestamp=recent.maximo);
-
-CREATE OR REPLACE VIEW list_upips AS
-  SELECT DISTINCT ON (current.ip) current.ip
-   FROM ( SELECT ip_history.ip,
-            max(ip_history.timestamp) AS maximus
-           FROM ip_history
-          GROUP BY ip_history.ip) recent,
-    ip_history current
-  WHERE current.ip = recent.ip AND current.timestamp = recent.maximus AND current.is_up IS TRUE;
-
-CREATE OR REPLACE VIEW list_upips_local AS
-  SELECT d.ip
-   FROM list_upips i
-     JOIN ip_data d ON i.ip = d.ip AND (d.asn IS NULL OR d.asn::text <> 'LOCAL'::text);
-
 CREATE TABLE IF NOT EXISTS nmap_scan(
     timestamp TIMESTAMP DEFAULT NOW(),
     ip        INET NOT NULL,
@@ -71,6 +44,15 @@ CREATE TABLE IF NOT EXISTS dns_a_wildcard(
     base      VARCHAR(256) NOT NULL,
     root      VARCHAR(256) NOT NULL,
     timestamp TIMESTAMP DEFAULT NOW(),
+    ip        INET);
+CREATE TABLE IF NOT EXISTS tld_records(
+    name      VARCHAR(256) NOT NULL,
+    root      VARCHAR(256) NOT NULL,
+    timestamp TIMESTAMP    DEFAULT NOW(),
+    qtype     VARCHAR(16)  NOT NULL,
+    rtype     VARCHAR(16),
+    rcode     VARCHAR(16)  NOT NULL,
+    data      VARCHAR(512),
     ip        INET);
 CREATE TABLE IF NOT EXISTS dns_record(
     name      VARCHAR(256) NOT NULL,
@@ -101,6 +83,41 @@ CREATE TABLE IF NOT EXISTS ${IP_HISTORY}(
     timestamp TIMESTAMP DEFAULT NOW(),
     ip        INET NOT NULL,
     is_up     BOOLEAN);
+------------------------------
+---
+CREATE OR REPLACE VIEW recent_tld_records AS
+  SELECT current.*
+  FROM (SELECT name,qtype,MAX(timestamp) AS maximun FROM tld_records GROUP BY name,qtype) recent
+  JOIN tld_records current
+  ON current.timestamp=recent.maximun AND current.name=recent.name AND current.qtype=recent.qtype;
+
+-- dns_record but latest results
+CREATE OR REPLACE VIEW recent_dns_record AS
+  SELECT current.*
+  FROM (SELECT name,qtype,MAX(timestamp) AS maximun FROM dns_record GROUP BY name,qtype) recent
+  JOIN dns_record current
+  ON current.timestamp=recent.maximun AND current.name=recent.name AND current.qtype=recent.qtype;
+
+-- IPs currently UP
+CREATE OR REPLACE VIEW newip_history AS
+  SELECT recent.maximo AS timestamp, recent.ip, current.is_up
+  FROM (SELECT ip,MAX(timestamp) maximo FROM ip_history GROUP BY ip) recent
+  JOIN ip_history current
+  ON (recent.ip=current.ip AND current.timestamp=recent.maximo);
+
+CREATE OR REPLACE VIEW list_upips AS
+  SELECT DISTINCT ON (current.ip) current.ip
+   FROM ( SELECT ip_history.ip,
+            max(ip_history.timestamp) AS maximus
+           FROM ip_history
+          GROUP BY ip_history.ip) recent,
+    ip_history current
+  WHERE current.ip = recent.ip AND current.timestamp = recent.maximus AND current.is_up IS TRUE;
+
+CREATE OR REPLACE VIEW list_upips_local AS
+  SELECT d.ip
+   FROM list_upips i
+     JOIN ip_data d ON i.ip = d.ip AND (d.asn IS NULL OR d.asn::text <> 'LOCAL'::text);
 ------------------------------
 DROP PROCEDURE IF EXISTS insert_ip_reverse;
 CREATE PROCEDURE insert_ip_reverse(newip     INET,
@@ -177,6 +194,55 @@ WHERE NOT EXISTS (
     WHERE base=newbase
     AND root=newroot
     AND ip=newip);
+\$$;
+--------------------
+DROP PROCEDURE IF EXISTS add_tld(varchar,varchar,varchar,varchar,varchar,varchar);
+CREATE PROCEDURE add_tld(newdomain VARCHAR,
+                         newroot   VARCHAR,
+                         newqtype  VARCHAR,
+                         newrtype  VARCHAR,
+                         newrcode  VARCHAR,
+                         newdata   VARCHAR)
+LANGUAGE SQL
+AS \$$
+INSERT INTO tld_records(name, root, qtype, rtype, rcode, data)
+SELECT LOWER(newdomain),
+       LOWER(newroot),
+       UPPER(newqtype),
+       UPPER(newrtype),
+       UPPER(newrcode),
+       newdata
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM recent_tld_records
+    WHERE name=newdomain
+      AND root=newroot
+      AND rcode=newrcode
+      AND ((data IS NULL AND newdata IS NULL) OR data=newdata));
+\$$;
+DROP PROCEDURE IF EXISTS add_tld(varchar,varchar,varchar,varchar,varchar,inet);
+CREATE PROCEDURE add_tld(newdomain VARCHAR,
+                         newroot   VARCHAR,
+                         newqtype  VARCHAR,
+                         newrtype  VARCHAR,
+                         newrcode  VARCHAR,
+                         newip     INET)
+LANGUAGE SQL
+AS \$$
+INSERT INTO tld_records(name, root, qtype, rtype, rcode, ip)
+SELECT LOWER(newdomain),
+       LOWER(newroot),
+       UPPER(newqtype),
+       newrtype,
+       newrcode,
+       newip
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM recent_tld_records
+    WHERE name=newdomain
+      AND root=newroot
+      AND rcode=newrcode
+      AND ((ip IS NULL AND newip IS NULL) OR ip=newip));
 \$$;
 --------------------
 DROP PROCEDURE IF EXISTS add_dns(varchar,varchar,varchar,varchar,varchar,varchar);
@@ -428,17 +494,18 @@ WHERE original.timestamp=recent.mtime
 }
 get_ips_unknown(){
     local root="${1}"
-    echo "SELECT recent.ip FROM (
-  SELECT ${IP_HISTORY}.ip, max(${IP_HISTORY}.timestamp) as mtime
-  FROM ${IP_HISTORY}
-  INNER JOIN dns_record ON (${IP_HISTORY}.ip=dns_record.ip)
-  WHERE dns_record.root='${root}'
-  GROUP BY ${IP_HISTORY}.ip) recent,
-  ${IP_HISTORY} original
-WHERE original.timestamp=recent.mtime
-  AND original.ip=recent.ip
-  AND original.is_up IS NULL;
-" | praw
+    echo "SELECT recent.ip
+          FROM
+          ( SELECT ${IP_HISTORY}.ip,
+                   MAX(${IP_HISTORY}.timestamp) AS mtime
+            FROM ${IP_HISTORY}
+            JOIN dns_record ON (${IP_HISTORY}.ip=dns_record.ip)
+            WHERE dns_record.root='${root}'
+            GROUP BY ${IP_HISTORY}.ip) recent,
+          ${IP_HISTORY} original
+          WHERE original.timestamp=recent.mtime
+            AND original.ip=recent.ip
+            AND original.is_up IS NULL;" | praw
 }
 get_subs(){
     echo "SELECT DISTINCT ON (sub) sub FROM dns_record" | praw
@@ -695,4 +762,52 @@ get_all_down_ips(){
           FROM newip_history
           WHERE is_up IS FALSE" \
               | praw
+}
+get_waf_ips(){
+    echo "SELECT d.ip
+          FROM ip_data d
+          JOIN ip_ptr p ON d.ip=p.ip
+          WHERE p.ptr NOT LIKE '%akamaitechnologies%'
+            AND d.asn NOT IN ('Akamai',
+                              'CLOUDFRONT',
+                              'LOCAL',
+                              'DYNDNS,US',
+                              'INCAPSULA,US',
+                              'Cloudflare',
+                              'DOSARREST,US',
+                              'MICROSOFT-CORP-MSN-AS-BLOCK,US',
+                              'ASN-CHEETA-MAIL,US')" | praw
+}
+rm_waf_ips(){
+    complement <(get_waf_ips) /dev/stdin
+}
+#
+add_tld(){
+    local root="${1}" # for which domain are these subdomains
+    local qtype="${2}" # what record type we queried
+    local ret=""
+    while read -r domain rcode rtype ipordata; do
+        if [[ ${qtype} == "${rtype}" ]] && [[ ${rtype} == "A" || ${rtype} == "AAAA" ]]; then
+            ipordata="$(purge "${ipordata}")"
+            rtype="$(purge "${rtype}")"
+            ret+="CALL add_tld('${domain}','${root}','${qtype}',${rtype},'${rcode}',INET ${ipordata});"
+            ret+=$'\n'
+        elif [[ ${qtype} == "${rtype}" ]] && [[ ${rtype} == "SOA" ]]; then
+            rtype="$(purge "${rtype}")"
+            ipordata="${ipordata% * * * * *}"
+            ipordata="$(purge "${ipordata}")"
+            ret+="CALL add_tld('${domain}','${root}','${qtype}',${rtype},'${rcode}',${ipordata});"
+            ret+=$'\n'
+        else
+            ipordata="$(purge "${ipordata}")"
+            rtype="$(purge "${rtype}")"
+            ret+="CALL add_tld('${domain}','${root}','${qtype}',${rtype},'${rcode}',${ipordata});"
+            ret+=$'\n'
+        fi
+    done
+    echo "${ret}" | pcall
+}
+rm_nxdomain_tlds(){
+    complement <(echo "SELECT DISTINCT ON (name) name FROM tld_records WHERE rcode='NXDOMAIN'" | praw | trim | uncomment) \
+               /dev/stdin
 }
