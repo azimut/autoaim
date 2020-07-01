@@ -58,8 +58,8 @@ CREATE TABLE IF NOT EXISTS tld_records(
     data      VARCHAR(512),
     ip        INET);
 CREATE TABLE IF NOT EXISTS dns_other(
-    name      VARCHAR(256) NOT NULL,
     timestamp TIMESTAMP    DEFAULT NOW(),
+    name      VARCHAR(256) NOT NULL,
     qtype     VARCHAR(16)  NOT NULL,
     rtype     VARCHAR(16),
     rcode     VARCHAR(16)  NOT NULL,
@@ -922,4 +922,13 @@ domains_ip_port(){
           JOIN dns_record dns ON (dns.ip=webs.ip)
           GROUP BY webs.ip,webs.port,dns.name" \
               | praw
+}
+nxdomain_other(){
+    echo "SELECT DISTINCT ON (name) name
+          FROM dns_other
+          WHERE rcode='NXDOMAIN'"\
+              | praw
+}
+rm_nxdomain_other(){
+    complement <(nxdomain_other) /dev/stdin
 }
