@@ -3,7 +3,7 @@
 set -exuo pipefail
 
 DOMAIN=${1:-${PWD##*/}}
-# TODO: get all MX, but losses original if CNAME chained
+
 NMAP=/usr/local/bin/nmap
 
 . ${HOME}/projects/sec/autoaim/helpers.sh
@@ -26,7 +26,7 @@ nmap_mx(){
     if [[ ! -f ${file}.xml ]]; then
         sudo $NMAP -n \
              -PE -PS25,465 -PA25 \
-             -v -sTV --reason \
+             -vv -sTV --reason \
              -oA ${file} \
              -F \
              -6 \
@@ -34,28 +34,30 @@ nmap_mx(){
              --script='default or banner or fcrdns'"$(nmap_ext)" \
              ${mx}
     fi
+    add_scan_file ${file}
     file=../mx/${mx}/nmap
     isvalidxml "${file}.xml" ||  rm -f "${file}.xml"
     if [[ ! -f ${file}.xml ]]; then
         sudo $NMAP -n \
              -PE -PS25,465 -PA25 -PP \
-             -v -sTV --reason \
+             -vv -sTV --reason \
              -oA ${file} \
              -F \
              --resolve-all \
              --script='default or banner or fcrdns'"$(nmap_ext)" \
              ${mx}
     fi
+    add_scan_file ${file}
 }
 
 dns_mx "${DOMAIN}" |
-    while IFS='|' read -r host mx; do
-        echo "${host} ${mx}"
+    while IFS='|' read -r _ mx; do
         mkdir -p ../mx/${mx}
-        upsert_in_file ../mx/${mx}/hosts ${host}
         nmap_mx ${mx}
-        add_scan_file ../mx/${mx}/nmap.xml
-        add_scan_file ../mx/${mx}/nmap6.xml
     done
+
+for qtype in 'A' 'AAAA'; do
+    dns_mx "${DOMAIN}" | cut -f2 -d'|' | sort -u | massdns_inline ${qtype} | add_other ${qtype}
+done
 
 echo "${0##*/} is DONE!"

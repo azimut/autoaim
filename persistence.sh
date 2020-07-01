@@ -10,6 +10,9 @@ IP_HISTORY='ip_history'
 IP_DATA='ip_data'
 DB=${DB:-postgres}
 
+psimple(){
+    psql -U postgres -d ${DB} < /dev/stdin
+}
 praw(){
     psql -U postgres -d ${DB} -t -A < /dev/stdin
 }
@@ -48,6 +51,14 @@ CREATE TABLE IF NOT EXISTS dns_a_wildcard(
 CREATE TABLE IF NOT EXISTS tld_records(
     name      VARCHAR(256) NOT NULL,
     root      VARCHAR(256) NOT NULL,
+    timestamp TIMESTAMP    DEFAULT NOW(),
+    qtype     VARCHAR(16)  NOT NULL,
+    rtype     VARCHAR(16),
+    rcode     VARCHAR(16)  NOT NULL,
+    data      VARCHAR(512),
+    ip        INET);
+CREATE TABLE IF NOT EXISTS dns_other(
+    name      VARCHAR(256) NOT NULL,
     timestamp TIMESTAMP    DEFAULT NOW(),
     qtype     VARCHAR(16)  NOT NULL,
     rtype     VARCHAR(16),
@@ -96,6 +107,13 @@ CREATE OR REPLACE VIEW recent_dns_record AS
   SELECT current.*
   FROM (SELECT name,qtype,MAX(timestamp) AS maximun FROM dns_record GROUP BY name,qtype) recent
   JOIN dns_record current
+  ON current.timestamp=recent.maximun AND current.name=recent.name AND current.qtype=recent.qtype;
+
+-- dns_other but latest results
+CREATE OR REPLACE VIEW recent_dns_other AS
+  SELECT current.*
+  FROM (SELECT name,qtype,MAX(timestamp) AS maximun FROM dns_other GROUP BY name,qtype) recent
+  JOIN dns_other current
   ON current.timestamp=recent.maximun AND current.name=recent.name AND current.qtype=recent.qtype;
 
 -- IPs currently UP
@@ -243,6 +261,49 @@ WHERE NOT EXISTS (
       AND root=newroot
       AND rcode=newrcode
       AND ((ip IS NULL AND newip IS NULL) OR ip=newip));
+\$$;
+--------------------
+DROP PROCEDURE IF EXISTS add_other(varchar,varchar,varchar,varchar,varchar);
+CREATE PROCEDURE add_other(newdomain VARCHAR,
+                         newqtype  VARCHAR,
+                         newrtype  VARCHAR,
+                         newrcode  VARCHAR,
+                         newdata   VARCHAR)
+LANGUAGE SQL
+AS \$$
+INSERT INTO dns_other(name, qtype, rtype, rcode, data)
+SELECT LOWER(newdomain),
+       UPPER(newqtype),
+       newrtype,
+       newrcode,
+       newdata
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM recent_dns_other
+    WHERE name=newdomain
+    AND rcode=newrcode
+    AND ((data IS NULL AND newdata IS NULL) OR data=newdata));
+\$$;
+DROP PROCEDURE IF EXISTS add_other(varchar,varchar,varchar,varchar,inet);
+CREATE PROCEDURE add_other(newdomain VARCHAR,
+                         newqtype  VARCHAR,
+                         newrtype  VARCHAR,
+                         newrcode  VARCHAR,
+                         newip     INET)
+LANGUAGE SQL
+AS \$$
+INSERT INTO dns_other(name, qtype, rtype, rcode, ip)
+SELECT LOWER(newdomain),
+       UPPER(newqtype),
+       newrtype,
+       newrcode,
+       newip
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM recent_dns_other
+    WHERE name=newdomain
+    AND rcode=newrcode
+    AND ((ip IS NULL AND newip IS NULL) OR ip=newip));
 \$$;
 --------------------
 DROP PROCEDURE IF EXISTS add_dns(varchar,varchar,varchar,varchar,varchar,varchar);
@@ -530,6 +591,24 @@ add_dns(){
     done
     echo "${ret}" | pcall
 }
+add_other(){
+    local qtype="${1}" # what record type we queried
+    local ret=""
+    while read -r domain rcode rtype ipordata; do
+        if [[ ${qtype} == "${rtype}" ]] && [[ ${rtype} == "A" || ${rtype} == "AAAA" ]]; then
+            ipordata="$(purge "${ipordata}")"
+            rtype="$(purge "${rtype}")"
+            ret+="CALL add_other('${domain}','${qtype}',${rtype},'${rcode}',INET ${ipordata});"
+            ret+=$'\n'
+        else
+            ipordata="$(purge "${ipordata}")"
+            rtype="$(purge "${rtype}")"
+            ret+="CALL add_other('${domain}','${qtype}',${rtype},'${rcode}',${ipordata});"
+            ret+=$'\n'
+        fi
+    done
+    echo "${ret}" | pcall
+}
 dns_nxdomain(){
     local root="${1}"
     echo "SELECT name
@@ -764,19 +843,20 @@ get_all_down_ips(){
               | praw
 }
 get_waf_ips(){
-    echo "SELECT d.ip
+    echo "SELECT DISTINCT ON (d.ip) d.ip
           FROM ip_data d
           JOIN ip_ptr p ON d.ip=p.ip
-          WHERE p.ptr NOT LIKE '%akamaitechnologies%'
-            AND d.asn NOT IN ('Akamai',
-                              'CLOUDFRONT',
-                              'LOCAL',
-                              'DYNDNS,US',
-                              'INCAPSULA,US',
-                              'Cloudflare',
-                              'DOSARREST,US',
-                              'MICROSOFT-CORP-MSN-AS-BLOCK,US',
-                              'ASN-CHEETA-MAIL,US')" | praw
+          WHERE p.ptr LIKE '%akamaitechnologies%'
+             OR p.ptr LIKE '%cloudfront.net%'
+             OR d.asn IN ('Akamai',
+                          'CLOUDFRONT',
+                          'LOCAL',
+                          'DYNDNS,US',
+                          'INCAPSULA,US',
+                          'Cloudflare',
+                          'DOSARREST,US',
+                          'MICROSOFT-CORP-MSN-AS-BLOCK,US',
+                          'ASN-CHEETA-MAIL,US')" | praw | sort -V
 }
 rm_waf_ips(){
     complement <(get_waf_ips) /dev/stdin
@@ -810,4 +890,36 @@ add_tld(){
 rm_nxdomain_tlds(){
     complement <(echo "SELECT DISTINCT ON (name) name FROM tld_records WHERE rcode='NXDOMAIN'" | praw | trim | uncomment) \
                /dev/stdin
+}
+open_tcp_unknown(){
+    local ip="${1}"
+    echo "SELECT current.port
+          FROM (SELECT MAX(timestamp), port, proto, pstatus
+                FROM nmap_scan
+                WHERE ip='${ip}'
+                  AND proto='tcp'
+                  AND pstatus='open'
+                GROUP BY port, proto, pstatus) AS recent,
+            nmap_scan AS current
+          WHERE ip='${ip}'
+            AND recent.port=current.port
+            AND recent.max=current.timestamp
+            AND recent.proto=current.proto
+            AND recent.pstatus=current.pstatus
+            AND finger IS NULL"\
+                | praw
+}
+
+# TODO: only considers domains on dns_record, not on nmap_scan
+domains_ip_port(){
+    echo "SELECT webs.ip, webs.port, dns.name
+          FROM (SELECT ip,host,port
+                FROM nmap_scan
+                WHERE proto='tcp'
+                  AND pstatus='open'
+                  AND finger IS NOT NULL
+                  AND service IN ('http','https','ssl/http')) webs
+          JOIN dns_record dns ON (dns.ip=webs.ip)
+          GROUP BY webs.ip,webs.port,dns.name" \
+              | praw
 }
