@@ -7,7 +7,7 @@ DOMAIN=${1:-${PWD##*/}}
 #BYPASS=$HOME/projects/sec/bypass-firewalls-by-DNS-history/bypass-firewalls-by-DNS-history.sh
 NMAP=/usr/bin/nmap
 DATE=$(date +%s)
-UA="http.useragent='Mozilla/5.0 (Windows NT 6.1; WOW64; rv:12.0) Gecko/20100101 Firefox/12.0'"
+UA="Mozilla/5.0 (Windows NT 6.1; WOW64; rv:12.0) Gecko/20100101 Firefox/12.0"
 # hostmap- scripts are broken
 SCRIPTS=(
     address-info
@@ -30,7 +30,7 @@ nmap_alive(){
          -sn \
          -PE -PS80,443 -PA80 -PP \
          -oA ${filename} \
-         --script-args="${UA},traceroute-geolocation.kmlfile='../ips/${ip}/map'" \
+         --script-args="http.useragent='${UA}',traceroute-geolocation.kmlfile='../ips/${ip}/map'" \
          --traceroute \
          --script "$(printf '%s,' "${SCRIPTS[@]}")" \
          --reason -v \
