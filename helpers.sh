@@ -7,6 +7,7 @@ RESOLVERS=$HOME/projects/sec/autoaim/data/resolvers.txt
 #==================================================
 # Pure - Non env dependent
 #==================================================
+join_by() { local IFS="$1"; shift; echo "$*"; }
 prefix(){ sed 's#^#'"${1}"'#g' /dev/stdin; }
 echoerr(){
     echo "error: $*" 1>&2
