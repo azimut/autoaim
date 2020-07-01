@@ -4,7 +4,6 @@ set -exuo pipefail
 
 DOMAIN=${1:-${PWD##*/}}
 
-NMAP_PARSE=$HOME/projects/sec/nmap-parse-output/nmap-parse-output
 BING=$HOME/projects/sec/bing-ip2hosts/bing-ip2hosts
 NMAP=/usr/local/bin/nmap
 
@@ -15,21 +14,20 @@ NMAP=/usr/local/bin/nmap
 # username ALL = NOPASSWD: /usr/bin/nmap
 bingip2host(){
     local ip=${1}
-    local folder=../ips/${ip}
-    if [[ ! -f ${folder}/bing-ip2hosts ]]; then
-        bash $BING -u -o ${folder}/bing-ip2hosts ${ip}
-        if [[ -s ${folder}/bing-ip2hosts ]]; then
-            notify-send -t 10000 "$(wc -l < ${folder}/bing-ip2hosts) Bing domains found!" "$(head ${folder}/bing-ip2hosts)"
+    local file=../ips/${ip}/bing-ip2hosts
+    if [[ ! -f ${file} ]]; then
+        bash $BING -u -o ${file} ${ip}
+        if [[ -s ${file} ]]; then
+            notify-send -t 10000 "$(wc -l < ${file}) Bing domains found!" "$(head ${file})"
         fi
     fi
 }
-
 nmap_tcp_fast(){
     local ip=${1}
     local file=../ips/${ip}/tcp
     isvalidxml "${file}.xml" ||  rm -f "${file}.xml"
     if [[ ! -f ${file}.nmap ]]; then
-        notify-send -t 5000 "Scanning ${ip}..."
+        notify-send -t 5000 "TCP Scanning ${ip}..."
         sudo $NMAP \
              -sT \
              -v \
@@ -45,16 +43,16 @@ nmap_tcp_fast(){
                         "$(grep -E -o '[0-9]+/open/' ${file}.gnmap)"
         fi
     fi
+    add_scan_file ${file}
 }
 nmap_udp_20(){
     local ip=${1}
     local file=../ips/${ip}/udp
-    isvalidxml "${file}.xml" ||  rm -f "${file}.xml"
-    if [[ ! -f ${file}.nmap ]]; then
-        notify-send -t 5000 "Scanning ${ip}..."
+    isvalidxml ${file}.xml || rm -f ${file}.xml
+    if [[ ! -f ${file}.xml ]]; then
+        notify-send -t 5000 "UDP Scanning ${ip}..."
         sudo $NMAP \
              -sUVC \
-             --packet-trace \
              --top-ports=20 \
              -oA ${file} \
              --max-retries=0 \
@@ -68,15 +66,8 @@ nmap_udp_20(){
                         "$(grep -E -o '[0-9]+/open/' ${file}.gnmap)"
         fi
     fi
+    add_scan_file ${file}
 }
-# nmap_ext(){
-#     local nmap_ext=( ssh ssl smtp pop3 tls imap )
-#     local nmap_string=""
-#     for proto in "${nmap_ext[@]}"; do
-#         nmap_string+=" or (*${proto}* and (discovery or safe or auth))"
-#     done
-#     echo "${nmap_string}"
-# }
 # nmap_tcp_full(){
 #     local ip=${1}
 #     local folder=../ips/${ip}
@@ -90,39 +81,45 @@ nmap_udp_20(){
 #         fi
 #     fi
 #}
-# nmap_tcp_version(){
-#     local ip=${1}
-#     local output=../ips/${ip}/full_tcp_version
-#     local input=../ips/${ip}/full_tcp.xml
-#     if [[ ! -f ${input} ]]; then
-#         return 1
-#     fi
-#     local ports; ports="$(bash ${NMAP_PARSE} ${input} ports)"
-#     if [[ ! -f ${output}.nmap && -n ${ports} ]]; then
-#         notify-send -t 10000 "FULL Version ${ip}..."
-#         sudo ${NMAP} -sTV --script='default or banner or unusual-port'"$(nmap_ext)" -v \
-    #              -oA ${output} \
-    #              --reason -n \
-    #              -p${ports} \
-    #              -Pn ${ip}
-#     fi
-# }
-
-get_ips_up_clear "${DOMAIN}" |
-    while read -r ip ; do
-        if [[ -f ../ips/${ip}/up ]]; then
-            nmap_udp_20   ${ip}
-            add_scan_file ../ips/${ip}/udp.xml
-            nmap_tcp_fast ${ip}
-            add_scan_file ../ips/${ip}/tcp.xml
-            #bingip2host   ${ip}
-        fi
+nmap_ext(){
+    local nmap_ext=( ssh ssl smtp pop3 tls imap )
+    local nmap_string=""
+    for proto in "${nmap_ext[@]}"; do
+        nmap_string+=" or (*${proto}* and (discovery or safe or auth))"
     done
-# while read -r ip ; do
-#     if [[ -f ../ips/${ip}/full ]]; then
-#         nmap_tcp_full    ${ip}
-#         nmap_tcp_version ${ip}
-#     fi
-# done < ips.txt
+    echo "${nmap_string}"
+}
+
+nmap_tcp_version(){
+    local ip=${1}
+    local file=../ips/${ip}/full_tcp_version
+    add_scan_file ${file}.xml
+    local ports; ports=$(open_tcp_unknown ${ip} | sort -n | paste -sd,)
+    if [[ -n ${ports} ]]; then
+        notify-send -t 10000 "Version scan ${ip}..."
+        sudo ${NMAP} \
+             -sTV \
+             --script='default or banner or unusual-port'"$(nmap_ext)" -v \
+             -oA ${file} \
+             --reason \
+             -n \
+             -p${ports} \
+             -Pn ${ip}
+        add_scan_file ${file}.xml
+    fi
+}
+
+# get_ips_up_clear "${DOMAIN}" |
+#     while read -r ip ; do
+#         nmap_tcp_fast ${ip}
+#     done
+
+get_ips_up_clear "${DOMAIN}" | rm_waf_ips |
+    while read -r ip ; do
+        nmap_udp_20  ${ip}
+        bingip2host  ${ip}
+        #nmap_tcp_full    ${ip}
+        #nmap_tcp_version ${ip}
+    done
 
 echo "${0##*/} is DONE!"
