@@ -10,6 +10,7 @@ RESOLVERS=$HOME/projects/sec/autoaim/data/resolvers.txt
 #==================================================
 join_by() { local IFS="$1"; shift; echo "$*"; }
 prefix(){ sed 's#^#'"${1}"'#g' /dev/stdin; }
+suffix(){ sed 's#$#'"${1}"'#g' /dev/stdin; }
 echoerr(){
     echo "error: $*" 1>&2
 }
