@@ -7,7 +7,7 @@ DOMAIN=${1:-${PWD##*/}}
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
 
-FOLDER=domains
+FOLDER=ns
 
 mkdir -p ${FOLDER}/dig
 mkdir -p ${FOLDER}/nmap
@@ -15,8 +15,7 @@ mkdir -p ${FOLDER}/trusttrees
 
 # To any with NS
 nmap_nsec(){
-    local domain=${1}
-    local ns=${2}
+    local domain=${1} ns=${2}
     file=${FOLDER}/nmap/nsec_${domain}_${ns}
     if [[ ! -f ${file}.gnmap ]]; then
         sudo $NMAP -sn -n -v -Pn \
@@ -29,11 +28,22 @@ nmap_nsec(){
     fi
 }
 
-# To any with NS/sub, assume NS resolves
+# To any with NS
+dig_any(){
+    local domain=${1} ns=${2}
+    echo "SELECT DISTINCT ON (ip) ip FROM dns_other WHERE name='${ns}'" | praw |
+        while read -r ip; do
+            file=${FOLDER}/dig/any_${ns}_${ip}_${domain}
+            if [[ ! -f ${file} ]]; then
+                dig @${ip} ${domain} ANY 2>&1 | tee ${file}
+            fi
+        done
+}
+
+# To any with NS/sub
 dig_axfr(){
-    local domain=${1}
-    local ns=${2}
-    dig @1.1.1.1 +short ${ns} A | trim |
+    local domain=${1} ns=${2}
+    echo "SELECT DISTINCT ON (ip) ip FROM dns_other WHERE name='${ns}'" | praw |
         while read -r ip; do
             file=${FOLDER}/dig/axfr_${ns}_${ip}_${domain}
             if [[ ! -f ${file} ]]; then
@@ -56,6 +66,15 @@ graph_trusttrees(){
     fi
 }
 
+nmap_ext(){
+    local nmap_ext=( ssh ssl smtp pop3 tls imap )
+    local nmap_string=""
+    for proto in "${nmap_ext[@]}"; do
+        nmap_string+=" or (*${proto}* and (discovery or safe or auth))"
+    done
+    echo "${nmap_string}"
+}
+
 fingerprint(){
     local ns=${1}
     local file=""
@@ -70,7 +89,7 @@ fingerprint(){
              --dns-servers 8.8.8.8 \
              --resolve-all \
              --reason \
-             --script "banner,dns-nsid,dns-recursion,fcrdns,fingerprint-strings" \
+             --script "banner or dns-nsid or dns-recursion or fcrdns or fingerprint-strings $(nmap_ext)" \
              -oA ${file} \
              ${ns}
     fi
@@ -87,12 +106,17 @@ fingerprint(){
              -6 \
              --resolve-all \
              --reason \
-             --script "banner,dns-nsid,dns-recursion,fcrdns,fingerprint-strings" \
+             --script "banner or dns-nsid or dns-recursion or fcrdns or fingerprint-strings $(nmap_ext)" \
              -oA ${file} \
              ${ns}
     fi
     add_scan_file ${file}
 }
+
+# query ALL, fordns records
+for qtype in 'A' 'AAAA'; do
+    dns_ns "${DOMAIN}" | cut -f2 -d'|' | sort -u | massdns_inline ${qtype} | add_other ${qtype}
+done
 
 # basic scan ONLY to ones that are worth
 dns_ns "${DOMAIN}" | grep -F -v -e awsdns -e cscdns | cut -f2 -d'|' | sort -u |
@@ -106,12 +130,8 @@ dns_ns "${DOMAIN}" |
     while IFS='|' read -r domain ns; do
         graph_trusttrees ${domain}
         dig_axfr         ${domain} ${ns}
+        dig_any          ${domain} ${ns}
         nmap_nsec        ${domain} ${ns}
     done
-
-# query ALL, fordns records
-for qtype in 'A' 'AAAA'; do
-    dns_ns "${DOMAIN}" | cut -f2 -d'|' | sort -u | massdns_inline ${qtype} | add_other ${qtype}
-done
 
 echo "${0##*/} is DONE!"

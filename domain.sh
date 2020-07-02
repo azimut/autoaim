@@ -17,7 +17,6 @@ set -exu
 
 DOMAIN=${1:-${PWD##*/}}
 
-NMAP=/usr/local/bin/nmap
 BESTWHOIS=$HOME/projects/sec/bestwhois/bestwhois
 AMASS=$HOME/projects/sec/amass/amass
 ONEFORALL=$HOME/projects/sec/OneForAll/oneforall/oneforall.py
@@ -30,7 +29,7 @@ mkdir -p ${FOLDER}/dig
 mkdir -p ${FOLDER}/nmap
 mkdir -p ${FOLDER}/oneforall
 
-# Only main domain
+# Only main domain, expire time
 whoisxml(){
     local domain=${1}
     local file=whoisxml_${domain}.json
@@ -55,21 +54,6 @@ zonemaster(){
                    --elapsed \
                    --noprogress \
                    --ipv4 --ipv6 ${domain}
-}
-
-# To any with NS
-dig_any(){
-    local domain=${1}
-    dig @1.1.1.1 +short ${domain} NS | uncomment | \
-        while read -r ns; do
-            dig @1.1.1.1 +short ${ns} A | uncomment |
-                while read -r ip; do
-                    file=${FOLDER}/dig/any_${ns}_${ip}_${domain}
-                    if [[ ! -f ${file} ]]; then
-                        dig @${ip} ${domain} ANY 2>&1 | tee ${file}
-                    fi
-                done
-        done
 }
 
 # To any with NS
@@ -99,7 +83,7 @@ amass_download(){
     cd -
 }
 
-# Main domain
+# Main domain, might be addded back to domains.txt
 amass_whois(){
     local domain=${1}
     file=${FOLDER}/amass/whois_${domain}
@@ -168,7 +152,6 @@ oneforall(){
 
 whoisxml      "${DOMAIN}" # whois
 nmap_domain   "${DOMAIN}" # srv, nsec # SUBDOMAINs
-dig_any       "${DOMAIN}" # any       # SUBDOMAINs or IPs (?)
 oneforall     "${DOMAIN}" # passive   # SUBDOMAINS
 amass_passive "${DOMAIN}" # passive   # SUBDOMAINs
 amass_whois   "${DOMAIN}" # whois     # DOMAINs
