@@ -18,7 +18,7 @@ massdns(){
     rm -f ${output}.gz
     $MASSDNS/bin/massdns \
         -s ${CONCURRENCY} \
-        --retry SERVFAIL,REFUSED \
+        --retry REFUSED \
         -c 25 \
         -o J \
         -t ${type} \
@@ -67,29 +67,27 @@ does_servfail "${DOMAIN}" && { echoerr "servfail"; exit 1; }
 #       but keeping log of the NX on edges
 # Adds RAW subdomains found in the same "project"
 mapfile -t domains < <({ grepsubdomain ${DOMAIN}; get_subs; } \
-                           | sed 's#$#.'${DOMAIN}'#g'\
+                           | suffix ${DOMAIN} \
                            | unify \
                            | sed 's#.'${DOMAIN}'$##g' \
-                           | sed 's#$#.'${DOMAIN}'#g' \
+                           | sort | uniq \
+                           | suffix      ${DOMAIN} \
                            | rm_nxdomain ${DOMAIN} \
                            | rm_resolved_wildcards ${DOMAIN} \
-                           | sort | uniq \
                            | grep -F ${DOMAIN})
 domains+=("${DOMAIN}") # add root domain
 
-notify-send -t 15000 \
-            "Massdns A for ${DOMAIN}" \
+notify-send -t 15000 "Massdns A for ${DOMAIN}" \
             "of $(printfnumber ${#domains[@]}) subdomains..."
 
 printf '%s\n' "${domains[@]}" \
-    | tee asdf.txt \
+    | tee domains.txt \
     | massdns A
 
 # Gather ips
-if [[ -f domains/resolved/a_${DOMAIN}.json.gz ]]; then
-    resolved_ips "${DOMAIN}" | add_ips
-    resolved_ips "${DOMAIN}" > ips.txt
-fi
+resolved_ips "${DOMAIN}" \
+    | tee ips.txt \
+    | add_ips
 
 # Load wildcards
 resolved_domains "${DOMAIN}" \
@@ -101,16 +99,16 @@ resolved_domains "${DOMAIN}" \
 # Remove wildcards
 mapfile -t domains < <(resolved_domains_nowildcard ${DOMAIN})
 
-notify-send -t 15000 \
-            "Massdns of other for ${DOMAIN}" \
+notify-send -t 15000 "Massdns of other for ${DOMAIN}" \
             "of $(printfnumber ${#domains[@]}) subdomains..."
 
 # If any NOERROR, try other records
 if [[ ${#domains[@]} -gt 0 ]]; then
-    printf '%s\n' "${domains[@]}" | massdns AAAA
-    printf '%s\n' "${domains[@]}" | massdns NS
-    printf '%s\n' "${domains[@]}" | massdns MX
-    printf '%s\n' "${domains[@]}" | massdns TXT
+    printf '%s\n' "${domains[@]}" \
+        | tee >(massdns AAAA) \
+              >(massdns NS) \
+              >(massdns MX) \
+              >(massdns TXT)
 fi
 # TODO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
 
