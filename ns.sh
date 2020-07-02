@@ -78,6 +78,7 @@ nmap_ext(){
 fingerprint(){
     local ns=${1}
     local file=""
+    mkdir -p ../ns/${ns}/
     file=../ns/${ns}/nmap
     isvalidxml "${file}.xml" ||  rm -f "${file}.xml"
     if [[ ! -f ${file}.xml ]]; then
@@ -121,7 +122,6 @@ done
 # basic scan ONLY to ones that are worth
 dns_ns "${DOMAIN}" | grep -F -v -e awsdns -e cscdns | cut -f2 -d'|' | sort -u |
     while read -r ns; do
-        mkdir -p ../ns/${ns}/
         fingerprint ${ns}
     done
 

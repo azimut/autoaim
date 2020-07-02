@@ -19,6 +19,7 @@ nmap_ext(){
 nmap_mx(){
     local mx=${1}
     local file
+    mkdir -p ../mx/${mx}
     file=../mx/${mx}/nmap6
     isvalidxml "${file}.xml" ||  rm -f "${file}.xml"
     if [[ ! -f ${file}.xml ]]; then
@@ -46,16 +47,15 @@ nmap_mx(){
     add_scan_file ${file}
 }
 
-# scan mx domains
-dns_mx "${DOMAIN}" | cut -f2 -d'|' | sort -u |
-    while read -r mx; do
-        mkdir -p ../mx/${mx}
-        nmap_mx ${mx}
-    done
-
 # add ALL, mx dns records
 for qtype in 'A' 'AAAA'; do
     dns_mx "${DOMAIN}" | cut -f2 -d'|' | sort -u | massdns_inline ${qtype} | add_other ${qtype}
 done
+
+# scan mx domains
+dns_mx "${DOMAIN}" | cut -f2 -d'|' | sort -u |
+    while read -r mx; do
+        nmap_mx ${mx}
+    done
 
 echo "${0##*/} is DONE!"
