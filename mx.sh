@@ -28,6 +28,7 @@ nmap_mx(){
              -vv -sTV --reason \
              -oA ${file} \
              -6 \
+             --script-args="http.useragent='${UA}'" \
              --resolve-all \
              --script='default or banner or fcrdns'"$(nmap_ext)" \
              ${mx}
@@ -40,6 +41,7 @@ nmap_mx(){
              -PE -PS25,465 -PA25 -PP \
              -vv -sTV --reason \
              -oA ${file} \
+             --script-args="http.useragent='${UA}'" \
              --resolve-all \
              --script='default or banner or fcrdns'"$(nmap_ext)" \
              ${mx}

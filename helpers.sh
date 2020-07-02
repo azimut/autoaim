@@ -1,5 +1,7 @@
 #!/bin/bash
 
+UA="Mozilla/5.0 (Windows NT 6.1; WOW64; rv:12.0) Gecko/20100101 Firefox/12.0"
+
 NMAP=/usr/local/bin/nmap
 MASSDNS=$HOME/projects/sec/massdns
 AUTOAIM=$HOME/projects/sec/autoaim

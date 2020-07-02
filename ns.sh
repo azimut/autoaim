@@ -88,6 +88,7 @@ fingerprint(){
              -p 'U:53,T:*' \
              -n -vv \
              --dns-servers 8.8.8.8 \
+             --script-args="http.useragent='${UA}'" \
              --resolve-all \
              --reason \
              --script "banner or dns-nsid or dns-recursion or fcrdns or fingerprint-strings $(nmap_ext)" \
@@ -105,6 +106,7 @@ fingerprint(){
              -n -vv \
              --dns-servers 8.8.8.8 \
              -6 \
+             --script-args="http.useragent='${UA}'" \
              --resolve-all \
              --reason \
              --script "banner or dns-nsid or dns-recursion or fcrdns or fingerprint-strings $(nmap_ext)" \

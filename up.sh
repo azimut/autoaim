@@ -7,7 +7,7 @@ DOMAIN=${1:-${PWD##*/}}
 #BYPASS=$HOME/projects/sec/bypass-firewalls-by-DNS-history/bypass-firewalls-by-DNS-history.sh
 NMAP=/usr/bin/nmap
 DATE=$(date +%s)
-UA="Mozilla/5.0 (Windows NT 6.1; WOW64; rv:12.0) Gecko/20100101 Firefox/12.0"
+
 # hostmap- scripts are broken
 SCRIPTS=(
     address-info
@@ -64,8 +64,7 @@ ips_up   | add_ips_up
 ips_down | add_ips_down
 
 # Add PTR
-get_ip_noptr "${DOMAIN}" | esrever \
-    | add_ip_reverse
+get_ip_noptr "${DOMAIN}" | esrever | add_ip_reverse
 get_ip_noptr "${DOMAIN}" | esrever | cut -f2 -d, | massdns_inline PTR \
     | add_ip_ptr
 
