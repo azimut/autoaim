@@ -1,5 +1,6 @@
 #!/bin/bash
 
+NMAP=/usr/local/bin/nmap
 MASSDNS=$HOME/projects/sec/massdns
 AUTOAIM=$HOME/projects/sec/autoaim
 RESOLVERS=$HOME/projects/sec/autoaim/data/resolvers.txt
