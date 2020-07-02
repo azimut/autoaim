@@ -3,7 +3,6 @@
 set -exuo pipefail
 
 DOMAIN=${1:-${PWD##*/}}
-NMAP=/usr/local/bin/nmap
 
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
@@ -63,9 +62,11 @@ fingerprint(){
     file=../ns/${ns}/nmap
     isvalidxml "${file}.xml" ||  rm -f "${file}.xml"
     if [[ ! -f ${file}.xml ]]; then
-        sudo $NMAP -sSUV \
+        sudo $NMAP -sTUV \
              -PE -PS53 -PU53 -PP \
-             -p 53 -n -v \
+             --top-ports=1000 \
+             -p 'U:53,T:*' \
+             -n -vv \
              --dns-servers 8.8.8.8 \
              --resolve-all \
              --reason \
@@ -77,9 +78,11 @@ fingerprint(){
     file=../ns/${ns}/nmap6
     isvalidxml "${file}.xml" ||  rm -f "${file}.xml"
     if [[ ! -f ${file}.xml ]]; then
-        sudo $NMAP -sSUV \
+        sudo $NMAP -sTUV \
              -PE -PS53 -PU53 \
-             -p 53 -n -v \
+             --top-ports=1000 \
+             -p 'U:53,T:*' \
+             -n -vv \
              --dns-servers 8.8.8.8 \
              -6 \
              --resolve-all \
@@ -91,6 +94,14 @@ fingerprint(){
     add_scan_file ${file}
 }
 
+# basic scan ONLY to ones that are worth
+dns_ns "${DOMAIN}" | grep -F -v -e awsdns -e cscdns | cut -f2 -d'|' | sort -u |
+    while read -r ns; do
+        mkdir -p ../ns/${ns}/
+        fingerprint ${ns}
+    done
+
+# NS-DOMAIN joined queries
 dns_ns "${DOMAIN}" |
     while IFS='|' read -r domain ns; do
         graph_trusttrees ${domain}
@@ -98,12 +109,7 @@ dns_ns "${DOMAIN}" |
         nmap_nsec        ${domain} ${ns}
     done
 
-dns_ns "${DOMAIN}" |
-    while IFS='|' read -r domain ns; do
-        mkdir -p ../ns/${ns}/
-        fingerprint ${ns}
-    done
-
+# query ALL, fordns records
 for qtype in 'A' 'AAAA'; do
     dns_ns "${DOMAIN}" | cut -f2 -d'|' | sort -u | massdns_inline ${qtype} | add_other ${qtype}
 done

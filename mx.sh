@@ -4,8 +4,6 @@ set -exuo pipefail
 
 DOMAIN=${1:-${PWD##*/}}
 
-NMAP=/usr/local/bin/nmap
-
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
 
@@ -28,7 +26,6 @@ nmap_mx(){
              -PE -PS25,465 -PA25 \
              -vv -sTV --reason \
              -oA ${file} \
-             -F \
              -6 \
              --resolve-all \
              --script='default or banner or fcrdns'"$(nmap_ext)" \
@@ -42,7 +39,6 @@ nmap_mx(){
              -PE -PS25,465 -PA25 -PP \
              -vv -sTV --reason \
              -oA ${file} \
-             -F \
              --resolve-all \
              --script='default or banner or fcrdns'"$(nmap_ext)" \
              ${mx}
@@ -50,12 +46,14 @@ nmap_mx(){
     add_scan_file ${file}
 }
 
-dns_mx "${DOMAIN}" |
-    while IFS='|' read -r _ mx; do
+# scan mx domains
+dns_mx "${DOMAIN}" | cut -f2 -d'|' | sort -u |
+    while read -r mx; do
         mkdir -p ../mx/${mx}
         nmap_mx ${mx}
     done
 
+# add ALL, mx dns records
 for qtype in 'A' 'AAAA'; do
     dns_mx "${DOMAIN}" | cut -f2 -d'|' | sort -u | massdns_inline ${qtype} | add_other ${qtype}
 done
