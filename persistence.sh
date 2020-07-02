@@ -932,3 +932,11 @@ nxdomain_other(){
 rm_nxdomain_other(){
     complement <(nxdomain_other) /dev/stdin
 }
+get_ips_tcp_scanned(){
+    echo "SELECT DISTINCT ON (ip) ip
+          FROM nmap_scan
+          WHERE proto='tcp'" | praw
+}
+rm_ips_tcp_scanned(){
+    complement <(get_ips_tcp_scanned) /dev/stdin
+}
