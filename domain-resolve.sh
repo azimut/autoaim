@@ -3,7 +3,6 @@
 set -euo pipefail
 
 DOMAIN=${1:-${PWD##*/}}
-CONCURRENCY=${2:-20}
 
 FOLDER=domains/resolved
 
@@ -14,10 +13,11 @@ mkdir -p ${FOLDER}/
 
 massdns(){
     local type=${1}
+    local concurrency=${2:-20}
     local output=${FOLDER}/${type,,}_${DOMAIN}.json
     rm -f ${output}.gz
     $MASSDNS/bin/massdns \
-        -s ${CONCURRENCY} \
+        -s ${concurrency} \
         --retry REFUSED \
         -c 25 \
         -o J \
@@ -66,12 +66,12 @@ does_servfail "${DOMAIN}" && { echoerr "servfail"; exit 1; }
 # TODO: addback some sort of "purify" deleting NX branches
 #       but keeping log of the NX on edges
 # Adds RAW subdomains found in the same "project"
-mapfile -t domains < <({ grepsubdomain ${DOMAIN}; get_subs; } \
-                           | suffix ${DOMAIN} \
+mapfile -t domains < <({ grepsubdomain ${DOMAIN}; get_subs_noerror_nowild; } \
+                           | suffix .${DOMAIN} \
                            | unify \
                            | sed 's#.'${DOMAIN}'$##g' \
                            | sort | uniq \
-                           | suffix      ${DOMAIN} \
+                           | suffix      .${DOMAIN} \
                            | rm_nxdomain ${DOMAIN} \
                            | rm_resolved_wildcards ${DOMAIN} \
                            | grep -F ${DOMAIN})
@@ -81,7 +81,6 @@ notify-send -t 15000 "Massdns A for ${DOMAIN}" \
             "of $(printfnumber ${#domains[@]}) subdomains..."
 
 printf '%s\n' "${domains[@]}" \
-    | tee domains.txt \
     | massdns A
 
 # Gather ips
@@ -91,6 +90,7 @@ resolved_ips "${DOMAIN}" \
 
 # Load wildcards
 resolved_domains "${DOMAIN}" \
+    | tee domains.txt \
     | rm_nxdomain ${DOMAIN} \
     | rm_resolved_wildcards ${DOMAIN} \
     | wildify \
@@ -105,10 +105,10 @@ notify-send -t 15000 "Massdns of other for ${DOMAIN}" \
 # If any NOERROR, try other records
 if [[ ${#domains[@]} -gt 0 ]]; then
     printf '%s\n' "${domains[@]}" \
-        | tee >(massdns AAAA) \
-              >(massdns NS) \
-              >(massdns MX) \
-              >(massdns TXT)
+        | tee >(massdns AAAA 10) \
+              >(massdns NS   10) \
+              >(massdns MX   10) \
+              >(massdns TXT  10) >/dev/null
 fi
 # TODO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
 
