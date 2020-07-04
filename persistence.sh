@@ -650,19 +650,6 @@ dns_cname() {
             AND rtype='CNAME'
           GROUP BY data" | praw
 }
-# TODO: needs to check for already know subdomains might be
-# Things that return NOERROR, either:
-# - dangling empty record
-# - record with hidden subdomains
-dns_weird(){
-    echo "SELECT name
-          FROM dns_record
-          WHERE rcode='NOERROR'
-            AND data IS NULL
-            AND ip   IS NULL
-            AND qtype='A'
-          ORDER BY name ASC" | praw
-}
 rm_nxdomain(){
     local root="${1}"
     complement <(dns_nxdomain "${root}" | trim | uncomment) /dev/stdin
@@ -672,9 +659,9 @@ resolved_hosts(){
     local root="${1}"
     echo "SELECT name, ip
           FROM dns_record
-          WHERE qtype='A'
+          WHERE root='${root}'
+            AND qtype='A'
             AND qtype=rtype
-            AND root='${root}'
             AND rcode='NOERROR'
             AND ip IS NOT NULL
           GROUP BY name, ip" | praw
@@ -683,18 +670,18 @@ resolved_domains(){
     local root="${1}"
     echo "SELECT DISTINCT ON(name) name
           FROM dns_record
-          WHERE qtype='A'
-            AND qtype=rtype
-            AND root='${root}'
+          WHERE root='${root}'
+            AND qtype='A'
+            AND (rtype IS NULL OR qtype=rtype)
             AND (rcode NOT IN ('NOERROR','NXDOMAIN') OR (rcode='NOERROR' AND ip IS NOT NULL))" | praw
 }
 resolved_ips(){
     local root="${1}"
     echo "SELECT DISTINCT ON(ip) ip
           FROM dns_record
-          WHERE qtype='A'
+          WHERE root='${root}'
+            AND qtype='A'
             AND qtype=rtype
-            AND root='${root}'
             AND rcode='NOERROR'
             AND ip IS NOT NULL" | praw
 }
@@ -939,4 +926,33 @@ get_ips_tcp_scanned(){
 }
 rm_ips_tcp_scanned(){
     complement <(get_ips_tcp_scanned) /dev/stdin
+}
+#------------------------------
+# Might be throw these ones to trustrees
+errors_cname(){
+    echo "SELECT name,qtype
+          FROM dns_record
+          WHERE rcode='SERVFAIL' AND rtype='CNAME'
+          GROUP BY name, qtype" \
+              | praw
+}
+# Throw these to subjack
+errors_dangling_cname(){
+    echo "SELECT data
+          FROM dns_record
+          WHERE rcode='NXDOMAIN' AND rtype='CNAME'" \
+              | praw
+}
+# TODO: needs to check for already know subdomains might be
+# Things that return NOERROR, either:
+# - dangling empty record
+# - record with hidden subdomains
+dns_weird(){
+    echo "SELECT name
+          FROM dns_record
+          WHERE rcode='NOERROR'
+            AND data IS NULL
+            AND ip   IS NULL
+            AND qtype='A' -- is less likely to have a missing A
+          ORDER BY name ASC" | praw
 }
