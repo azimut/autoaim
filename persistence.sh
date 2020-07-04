@@ -571,6 +571,21 @@ get_ips_unknown(){
 get_subs(){
     echo "SELECT DISTINCT ON (sub) sub FROM dns_record" | praw
 }
+get_subs_noerror(){
+    echo "SELECT DISTINCT ON (sub) sub
+          FROM dns_record
+          WHERE rcode='NOERROR' AND qtype='A'" | praw
+}
+get_subs_noerror_nowild(){
+    echo "SELECT DISTINCT ON (noerror.sub) noerror.sub
+          FROM (SELECT name,sub,ip
+                FROM dns_record
+                WHERE rcode='NOERROR' AND qtype='A') noerror
+          LEFT JOIN dns_a_wildcard wild
+            ON noerror.ip=wild.ip
+          WHERE wild.ip IS NULL
+            OR (wild.ip IS NOT NULL AND noerror.name=wild.base)" | praw
+}
 #------------------------------
 add_dns(){
     local root="${1}" # for which domain are these subdomains
@@ -611,7 +626,7 @@ add_other(){
 }
 dns_nxdomain(){
     local root="${1}"
-    echo "SELECT name
+    echo "SELECT DISTINCT ON(name) name
           FROM dns_record
           WHERE qtype='A'
             AND rcode='NXDOMAIN'
@@ -637,18 +652,19 @@ dns_ns(){
 dns_mx(){
     local root="${1}"
     echo "SELECT name,SPLIT_PART(data,' ', 2)
-          FROM dns_record
-          WHERE root='${root}'
-            AND qtype=rtype
-            AND qtype='MX'" | praw
+    FROM dns_record
+    WHERE root='${root}'
+    AND qtype=rtype
+    AND qtype='MX'" | praw
 }
+# Throw these to monitoring?
 dns_cname() {
     local root="${1}"
-    echo "SELECT data
-          FROM dns_record
-          WHERE root='${root}'
-            AND rtype='CNAME'
-          GROUP BY data" | praw
+    echo "SELECT DISTINCT ON(data) data
+    FROM dns_record
+    WHERE root='${root}'
+    AND rtype='CNAME'" \
+        | praw
 }
 rm_nxdomain(){
     local root="${1}"
@@ -658,32 +674,32 @@ rm_nxdomain(){
 resolved_hosts(){
     local root="${1}"
     echo "SELECT name, ip
-          FROM dns_record
-          WHERE root='${root}'
-            AND qtype='A'
-            AND qtype=rtype
-            AND rcode='NOERROR'
-            AND ip IS NOT NULL
-          GROUP BY name, ip" | praw
+    FROM dns_record
+    WHERE root='${root}'
+    AND qtype='A'
+    AND qtype=rtype
+    AND rcode='NOERROR'
+    AND ip IS NOT NULL
+    GROUP BY name, ip" | praw
 }
 resolved_domains(){
     local root="${1}"
     echo "SELECT DISTINCT ON(name) name
-          FROM dns_record
-          WHERE root='${root}'
-            AND qtype='A'
-            AND (rtype IS NULL OR qtype=rtype)
-            AND (rcode NOT IN ('NOERROR','NXDOMAIN') OR (rcode='NOERROR' AND ip IS NOT NULL))" | praw
+    FROM dns_record
+    WHERE root='${root}'
+    AND qtype='A'
+    AND (rtype IS NULL OR qtype=rtype) -- include all noerror with empty response
+    AND rcode!='NXDOMAIN'" | praw
 }
 resolved_ips(){
     local root="${1}"
     echo "SELECT DISTINCT ON(ip) ip
-          FROM dns_record
-          WHERE root='${root}'
-            AND qtype='A'
-            AND qtype=rtype
-            AND rcode='NOERROR'
-            AND ip IS NOT NULL" | praw
+    FROM dns_record
+    WHERE root='${root}'
+    AND qtype='A'
+    AND qtype=rtype
+    AND rcode='NOERROR'
+    AND ip IS NOT NULL" | praw
 }
 #------------------------------
 dns_add_wildcard(){
@@ -699,33 +715,33 @@ dns_add_wildcard(){
 resolved_domains_nowildcard(){
     local root="${1}"
     echo "SELECT DISTINCT ON (reduced.name) reduced.name
-          FROM (SELECT d.name, d.ip
-                FROM dns_record d
-                WHERE d.root='${root}'
-                  AND d.qtype='A'
-                  AND d.rcode='NOERROR'
-                  AND d.ip IS NOT NULL) reduced
-          LEFT JOIN dns_a_wildcard w
-              ON  reduced.ip=w.ip
-              AND reduced.name!=w.base
-              AND SUBSTR(reduced.name,LENGTH(reduced.name)-LENGTH(w.base)+1)=w.base
-          WHERE w.ip IS NULL" \
-              | praw
+    FROM (SELECT d.name, d.ip
+          FROM dns_record d
+          WHERE d.root='${root}'
+          AND d.qtype='A'
+          AND d.rcode='NOERROR'
+          AND d.ip IS NOT NULL) reduced
+    LEFT JOIN dns_a_wildcard w
+    ON  reduced.ip=w.ip
+    AND reduced.name!=w.base
+    AND SUBSTR(reduced.name,LENGTH(reduced.name)-LENGTH(w.base)+1)=w.base
+    WHERE w.ip IS NULL" \
+        | praw
 }
 resolved_domains_wildcard(){
     local root="${1}"
     echo "SELECT reduced.name
-          FROM (SELECT d.name, d.ip
-                FROM dns_record d
-                WHERE d.root='${root}'
-                  AND d.qtype='A'
-                  AND d.rcode='NOERROR'
-                  AND d.ip IS NOT NULL) reduced
-          RIGHT JOIN dns_a_wildcard w
-              ON  reduced.ip=w.ip
-              AND reduced.name!=w.base
-              AND SUBSTR(reduced.name,LENGTH(reduced.name)-LENGTH(w.base)+1)=w.base" \
-                  | praw
+    FROM (SELECT d.name, d.ip
+          FROM dns_record d
+          WHERE d.root='${root}'
+          AND d.qtype='A'
+          AND d.rcode='NOERROR'
+          AND d.ip IS NOT NULL) reduced
+    RIGHT JOIN dns_a_wildcard w
+    ON  reduced.ip=w.ip
+    AND reduced.name!=w.base
+    AND SUBSTR(reduced.name,LENGTH(reduced.name)-LENGTH(w.base)+1)=w.base" \
+        | praw
 }
 rm_resolved_wildcards(){
     local root="${1}"
@@ -755,25 +771,25 @@ add_ip_ptr(){
 get_ip_nodata(){
     local root="${1}"
     echo "SELECT d.ip
-          FROM dns_record d
-          LEFT JOIN ${IP_DATA} i
-            ON d.ip=i.ip AND ( i.cidr IS NULL OR i.asn IS NULL)
-          WHERE root='${root}'
-            AND d.qtype=d.rtype
-            AND d.qtype IN ('A', 'AAAA')
-            AND d.ip IS NOT NULL
-          GROUP BY d.ip" \
-              | praw
+    FROM dns_record d
+    LEFT JOIN ${IP_DATA} i
+    ON d.ip=i.ip AND ( i.cidr IS NULL OR i.asn IS NULL)
+    WHERE root='${root}'
+    AND d.qtype=d.rtype
+    AND d.qtype IN ('A', 'AAAA')
+    AND d.ip IS NOT NULL
+    GROUP BY d.ip" \
+        | praw
 }
 get_ip_noptr(){
     local root="${1}"
     echo "SELECT DISTINCT ON (d.ip) d.ip
-          FROM dns_record d
-          WHERE NOT EXISTS (SELECT 1 FROM ip_ptr i WHERE d.ip=i.ip AND i.ptr IS NOT NULL)
-          AND root='${root}'
-            AND d.qtype=d.rtype
-            AND d.qtype IN ('A', 'AAAA')" \
-                | praw
+    FROM dns_record d
+    WHERE NOT EXISTS (SELECT 1 FROM ip_ptr i WHERE d.ip=i.ip AND i.ptr IS NOT NULL)
+    AND root='${root}'
+    AND d.qtype=d.rtype
+    AND d.qtype IN ('A', 'AAAA')" \
+        | praw
 }
 add_ip_reverse(){
     local ret=""
@@ -933,15 +949,13 @@ errors_cname(){
     echo "SELECT name,qtype
           FROM dns_record
           WHERE rcode='SERVFAIL' AND rtype='CNAME'
-          GROUP BY name, qtype" \
-              | praw
+          GROUP BY name, qtype" | praw
 }
 # Throw these to subjack
 errors_dangling_cname(){
     echo "SELECT data
           FROM dns_record
-          WHERE rcode='NXDOMAIN' AND rtype='CNAME'" \
-              | praw
+          WHERE rcode='NXDOMAIN' AND rtype='CNAME'" | praw
 }
 # TODO: needs to check for already know subdomains might be
 # Things that return NOERROR, either:
