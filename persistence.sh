@@ -719,8 +719,7 @@ resolved_domains_nowildcard(){
           FROM dns_record d
           WHERE d.root='${root}'
           AND d.qtype='A'
-          AND d.rcode='NOERROR'
-          AND d.ip IS NOT NULL) reduced
+          AND d.rcode='NOERROR') reduced
     LEFT JOIN dns_a_wildcard w
     ON  reduced.ip=w.ip
     AND reduced.name!=w.base
