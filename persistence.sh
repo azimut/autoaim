@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS nmap_scan(
     timestamp TIMESTAMP DEFAULT NOW(),
     ip        INET NOT NULL,
     host      VARCHAR(256),
-    pstatus   VARCHAR(8),
+    pstatus   VARCHAR(24),
     proto     VARCHAR(8),
     port      INTEGER,
     service   VARCHAR(32),
@@ -861,9 +861,19 @@ get_waf_ips(){
                           'DYNDNS,US',
                           'INCAPSULA,US',
                           'Cloudflare',
+                          'FASTLY,US',
                           'DOSARREST,US',
                           'MICROSOFT-CORP-MSN-AS-BLOCK,US',
                           'ASN-CHEETA-MAIL,US')" | praw | sort -V
+}
+get_local_ips(){
+    echo "SELECT DISTINCT ON (d.ip) d.ip
+          FROM ip_data d
+          JOIN ip_ptr p ON d.ip=p.ip
+          WHERE d.asn='LOCAL'" | praw | sort -V
+}
+rm_local_ips(){
+    complement <(get_local_ips) /dev/stdin
 }
 rm_waf_ips(){
     complement <(get_waf_ips) /dev/stdin

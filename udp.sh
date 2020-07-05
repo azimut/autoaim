@@ -13,7 +13,7 @@ NMAP=/usr/local/bin/nmap
 nmap_udp_20(){
     local ip=${1}
     local file=../ips/${ip}/udp
-    isvalidxml ${file}.xml || rm -f ${file}.xml
+    isvalidxml ${file}.xml || rm -f "${file}.*"
     if [[ ! -f ${file}.xml ]]; then
         notify-send -t 5000 "UDP Scanning ${ip}..."
         sudo $NMAP \

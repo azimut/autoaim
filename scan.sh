@@ -27,7 +27,7 @@ bingip2host(){
 nmap_tcp_fast(){
     local ip=${1}
     local file=../ips/${ip}/tcp
-    isvalidxml "${file}.xml" ||  rm -f "${file}.xml"
+    isvalidxml "${file}.xml" ||  rm -f "${file}.*"
     if [[ ! -f ${file}.nmap ]]; then
         notify-send -t 5000 "TCP Scanning ${ip}..."
         sudo $NMAP \
@@ -47,32 +47,11 @@ nmap_tcp_fast(){
     fi
     add_scan_file ${file}.xml
 }
-nmap_udp_20(){
-    local ip=${1}
-    local file=../ips/${ip}/udp
-    isvalidxml ${file}.xml || rm -f ${file}.xml
-    if [[ ! -f ${file}.xml ]]; then
-        notify-send -t 5000 "UDP Scanning ${ip}..."
-        sudo $NMAP \
-             -sUVC \
-             -vv \
-             --top-ports=20 \
-             -oA ${file} \
-             --max-retries=0 \
-             --reason \
-             -n \
-             -Pn ${ip}
-        if grep /open/ ${file}.gnmap; then
-            notify-send -t 7000 \
-                        "Open ports at ${ip}" \
-                        "$(grep -E -o '[0-9]+/open/' ${file}.gnmap)"
-        fi
-    fi
-    add_scan_file ${file}.xml
-}
+
 nmap_tcp_full(){
     local ip=${1}
     local file=../ips/${ip}/full_tcp
+    isvalidxml "${file}.xml" ||  rm -f "${file}.*"
     if [[ ! -f ${file}.xml ]]; then
         notify-send -t 5000 "FULL TCP scanning ${ip}..."
         sudo $NMAP \
@@ -90,6 +69,7 @@ nmap_tcp_full(){
                         "$(grep -E -o '[0-9]+/open/' ${file}.gnmap)"
         fi
     fi
+    add_scan_file ${file}.xml
 }
 nmap_ext(){
     local nmap_ext=( ssh ssl smtp pop3 tls imap )
@@ -119,17 +99,16 @@ nmap_tcp_version(){
     fi
 }
 
-get_ips_up_clear "${DOMAIN}" | rm_waf_ips |
+get_ips_up_clear "${DOMAIN}" | rm_local_ips |
     while read -r ip ; do
         nmap_tcp_fast ${ip}
-        nmap_udp_20   ${ip}
-        #bingip2host      ${ip}
     done
 
-# get_ips_up_clear "${DOMAIN}" | rm_waf_ips |
-#     while read -r ip ; do
-#         nmap_tcp_full    ${ip}
-#         nmap_tcp_version ${ip}
-#     done
+get_ips_up_clear "${DOMAIN}" | rm_waf_ips |
+    while read -r ip ; do
+        bingip2host      ${ip}
+        nmap_tcp_full    ${ip}
+        nmap_tcp_version ${ip}
+    done
 
 echo "${0##*/} is DONE!"
