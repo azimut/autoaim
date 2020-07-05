@@ -2,9 +2,13 @@
 
 UA="Mozilla/5.0 (Windows NT 6.1; WOW64; rv:12.0) Gecko/20100101 Firefox/12.0"
 
-NMAP=/usr/local/bin/nmap
+DATE=$(date +%s)
+
+AQUATONE=$HOME/projects/sec/aquatone/aquatone
 MASSDNS=$HOME/projects/sec/massdns
 AUTOAIM=$HOME/projects/sec/autoaim
+NMAP=/usr/local/bin/nmap
+
 RESOLVERS=$HOME/projects/sec/autoaim/data/resolvers.txt
 
 #==================================================
