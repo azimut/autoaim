@@ -4,8 +4,6 @@ set -exuo pipefail
 
 DOMAIN=${1:-${PWD##*/}}
 
-NMAP=/usr/local/bin/nmap
-
 [[ -f ../env.sh ]] && source ../env.sh
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
@@ -15,7 +13,7 @@ nmap_udp_20(){
     local file=../ips/${ip}/udp
     isvalidxml ${file}.xml || rm -f "${file}.*"
     if [[ ! -f ${file}.xml ]]; then
-        notify-send -t 5000 "UDP Scanning ${ip}..."
+        notify-send -t 15000 "UDP Scanning ${ip}..."
         sudo $NMAP \
              -sUVC \
              -vv \
@@ -26,15 +24,14 @@ nmap_udp_20(){
              -n \
              -Pn ${ip}
         if grep /open/ ${file}.gnmap; then
-            notify-send -t 7000 \
-                        "Open ports at ${ip}" \
+            notify-send -t 15000 "Open ports at ${ip}" \
                         "$(grep -E -o '[0-9]+/open/' ${file}.gnmap)"
         fi
     fi
     add_scan_file ${file}.xml
 }
 
-get_ips_up_clear "${DOMAIN}" | rm_waf_ips |
+get_ips_up "${DOMAIN}" | rm_local_ips | rm_waf_ips |
     while read -r ip ; do
         nmap_udp_20 ${ip}
     done
