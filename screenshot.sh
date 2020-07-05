@@ -2,40 +2,55 @@
 
 set -exuo pipefail
 
-AQUATONE=$HOME/projects/sec/aquatone/aquatone
-FOLDER=data/aquatone
-DATE=$(date +%s)
+DOMAIN=${1:-${PWD##*/}}
 
-mkdir -p ${FOLDER}
+FOLDER=http/aquatone
+mkdir -p ${FOLDER}/ips
+mkdir -p ${FOLDER}/domains
 
-trim(){ awk '{$1=$1};1' /dev/stdin ; }
-ips_with_open_ports(){
-    grep -E -l '(80|443|8000|8080)/open/' data/*/*.gnmap \
-        | cut -f2 -d/ | trim
-}
+[[ -f ../env.sh ]] && source ../env.sh
+. ${HOME}/projects/sec/autoaim/helpers.sh
+. ${HOME}/projects/sec/autoaim/persistence.sh
+
 aquatone_processed_ips(){
-    local file=data/aquatone/aquatone_urls.txt
-    if [[ -f ${file} ]]; then
-        cut -f3 -d/ ${file} | sort | uniq
-    fi
+    local file=${FOLDER}/ips/aquatone_urls.txt
+    [[ -f ${file} ]] && cut -f3 -d/ ${file} | sort -Vu
+}
+aquatone_processed_domains(){
+    local file=${FOLDER}/domains/aquatone_urls.txt
+    [[ -f ${file} ]] && cut -f3 -d/ ${file} | sort -u
 }
 
-mapfile -t pending < <(ips_with_open_ports | grep -xvf <(aquatone_processed_ips))
+ports="$(scan_report ${DOMAIN} | grep -F http | cut -f5 -d'|' | sort -nu | paste -sd,)"
 
-[[ ${#pending[@]} -eq 0 ]] && {
-    echo "Nothing pending...exiting"
-    exit 0
-}
+# IPs
+mapfile -t pending < <(complement <(aquatone_processed_ips) \
+                                  <(scan_report ${DOMAIN} | grep -F http | cut -f2 -d'|' | sort -Vu))
+if [[ ${#pending[@]} -gt 0 ]]; then
+    echo "Processing ${#pending[@]} ips..."
+    notify-send -t 15000 "Aquatone" "Processing ${#pending[@]} ips on ports ${ports}"
+    rm -rf ${FOLDER}/ips
+    printf '%s\n' "${pending[@]}" | \
+        $AQUATONE -screenshot-timeout 60000 \
+                  -scan-timeout 1000 \
+                  -debug \
+                  -ports "${ports}" \
+                  -threads 1 \
+                  -out ${FOLDER}/ips 2>&1 | tee ${FOLDER}/ips/output.log
+fi
 
-[[ -d ${FOLDER} ]] && mv ${FOLDER} ${FOLDER}.${DATE}
-
-echo "Processing ${#pending[@]} ips..."
-notify-send -t 10000 "Aquatone" "Processing ${#pending[@]} ips.."
-
-printf '%s\n' "${pending[@]}" | \
-    $AQUATONE -screenshot-timeout 60000 \
-              -scan-timeout 1000 \
-              -debug \
-              -ports 80,443,8000,8080 \
-              -threads 1 \
-              -out ${FOLDER}
+# Domains
+mapfile -t pending < <(complement <(aquatone_processed_domains) \
+                                  <(scan_report ${DOMAIN} | grep -F http | cut -f3 -d'|' | sort -u))
+if [[ ${#pending[@]} -gt 0 ]]; then
+    echo "Processing ${#pending[@]} domains..."
+    notify-send -t 15000 "Aquatone" "Processing ${#pending[@]} ips on ports ${ports}"
+    rm -rf ${FOLDER}/domains
+    printf '%s\n' "${pending[@]}" | \
+        $AQUATONE -screenshot-timeout 60000 \
+                  -scan-timeout 1000 \
+                  -debug \
+                  -ports "${ports}" \
+                  -threads 1 \
+                  -out ${FOLDER}/domains | tee ${FOLDER}/domains/output.log
+fi
