@@ -12,6 +12,7 @@ mkdir -p ${FOLDER}/domains
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
 
+# TODO: doesn't check if a new port was opened
 aquatone_processed_ips(){
     local file=${FOLDER}/ips/aquatone_urls.txt
     [[ -f ${file} ]] && cut -f3 -d/ ${file} | sort -Vu
