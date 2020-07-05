@@ -18,8 +18,12 @@ SCRIPTS=(
     whois-ip
 )
 
+[[ -f ../env.sh ]] && source ../env.sh
+
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
+
+mkdir -p ../ips/
 
 nmap_alive(){
     local ip=${1}
