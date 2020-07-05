@@ -124,7 +124,7 @@ for qtype in 'A' 'AAAA'; do
 done
 
 # basic scan ONLY to ones that are worth
-dns_ns "${DOMAIN}" | cut -f2 -d'|' | sort -u | grep -F -v -e '.awsdns-' -e cscdns -e '.cloudfront.net.' -e 'mailgun.org' |
+dns_ns "${DOMAIN}" | cut -f2 -d'|' | sort -u | grep -F -v -e '.awsdns-' -e cscdns -e '.akam.net' -e 'mailgun.org' |
     while read -r ns; do
         fingerprint ${ns}
     done
