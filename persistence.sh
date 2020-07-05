@@ -8,6 +8,7 @@ set -xu
 
 IP_HISTORY='ip_history'
 IP_DATA='ip_data'
+
 DB=${DB:-postgres}
 
 psimple(){
@@ -32,6 +33,7 @@ pcall(){
 # " | psql -U postgres
 # }
 initdb(){
+    echo "SELECT 'CREATE DATABASE ${DB}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${DB}')\gexec" | psql -U postgres -d postgres
     template="""
 CREATE TABLE IF NOT EXISTS nmap_scan(
     timestamp TIMESTAMP DEFAULT NOW(),
@@ -330,9 +332,10 @@ WHERE NOT EXISTS (
     SELECT 1
     FROM recent_dns_record
     WHERE name=newdomain
-    AND root=newroot
-    AND rcode=newrcode
-    AND ((data IS NULL AND newdata IS NULL) OR data=newdata));
+      AND root=newroot
+      AND qtype=newqtype
+      AND (rcode=newrcode OR (rcode IS NULL AND newrcode IS NULL))
+      AND ((data IS NULL AND newdata IS NULL) OR data=newdata));
 \$$;
 DROP PROCEDURE IF EXISTS add_dns(varchar,varchar,varchar,varchar,varchar,inet);
 CREATE PROCEDURE add_dns(newdomain VARCHAR,
@@ -358,9 +361,10 @@ WHERE NOT EXISTS (
     SELECT 1
     FROM recent_dns_record
     WHERE name=newdomain
-    AND root=newroot
-    AND rcode=newrcode
-    AND ((ip IS NULL AND newip IS NULL) OR ip=newip));
+      AND root=newroot
+      AND qtype=newqtype
+      AND (rcode=newrcode OR (rcode IS NULL AND newrcode IS NULL))
+      AND ((ip IS NULL AND newip IS NULL) OR ip=newip));
 \$$;
 --------------------
 DROP PROCEDURE IF EXISTS insert_ip(inet, boolean, timestamp);
@@ -578,13 +582,14 @@ get_subs_noerror(){
 }
 get_subs_noerror_nowild(){
     echo "SELECT DISTINCT ON (noerror.sub) noerror.sub
-          FROM (SELECT name,sub,ip
+          FROM (SELECT name,root,sub,ip
                 FROM dns_record
                 WHERE rcode='NOERROR' AND qtype='A') noerror
           LEFT JOIN dns_a_wildcard wild
             ON noerror.ip=wild.ip
-          WHERE wild.ip IS NULL
-            OR (wild.ip IS NOT NULL AND noerror.name=wild.base)" | praw
+          WHERE noerror.name!=noerror.root
+            AND (wild.ip IS NULL
+                 OR (wild.ip IS NOT NULL AND noerror.name=wild.base))" | praw
 }
 #------------------------------
 add_dns(){
@@ -968,4 +973,16 @@ dns_weird(){
             AND ip   IS NULL
             AND qtype='A' -- is less likely to have a missing A
           ORDER BY name ASC" | praw
+}
+
+scan_report(){
+    local root="${1}"
+    echo "SELECT i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger
+          FROM nmap_scan n
+          JOIN dns_record d ON d.ip=n.ip AND n.pstatus='open'
+          JOIN ip_data    i ON i.ip=d.ip
+          LEFT JOIN dns_a_wildcard w ON d.ip=w.ip
+          WHERE d.root='${root}' AND (w.ip IS NULL OR w.base=d.name)
+          GROUP BY i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger
+          ORDER BY d.name,n.ip" | praw
 }
