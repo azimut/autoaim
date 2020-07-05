@@ -7,6 +7,8 @@ DOMAIN=${1:-${PWD##*/}}
 BING=$HOME/projects/sec/bing-ip2hosts/bing-ip2hosts
 NMAP=/usr/local/bin/nmap
 
+[[ -f ../env.sh ]] && source ../env.sh
+
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
 
@@ -29,8 +31,8 @@ nmap_tcp_fast(){
     if [[ ! -f ${file}.nmap ]]; then
         notify-send -t 5000 "TCP Scanning ${ip}..."
         sudo $NMAP \
-             -sT \
-             -v \
+             -sTV \
+             -vv \
              -oA ${file} \
              --max-retries=0 \
              --reason \
@@ -43,7 +45,7 @@ nmap_tcp_fast(){
                         "$(grep -E -o '[0-9]+/open/' ${file}.gnmap)"
         fi
     fi
-    add_scan_file ${file}
+    add_scan_file ${file}.xml
 }
 nmap_udp_20(){
     local ip=${1}
@@ -53,12 +55,12 @@ nmap_udp_20(){
         notify-send -t 5000 "UDP Scanning ${ip}..."
         sudo $NMAP \
              -sUVC \
+             -vv \
              --top-ports=20 \
              -oA ${file} \
              --max-retries=0 \
              --reason \
              -n \
-             -F \
              -Pn ${ip}
         if grep /open/ ${file}.gnmap; then
             notify-send -t 7000 \
@@ -66,21 +68,29 @@ nmap_udp_20(){
                         "$(grep -E -o '[0-9]+/open/' ${file}.gnmap)"
         fi
     fi
-    add_scan_file ${file}
+    add_scan_file ${file}.xml
 }
-# nmap_tcp_full(){
-#     local ip=${1}
-#     local folder=../ips/${ip}
-#     if [[ ! -f ${folder}/full_tcp.nmap ]]; then
-#         notify-send -t 5000 "FULL TCP scanning ${ip}..."
-#         sudo $NMAP -sT -v \
-    #              -oA ${folder}/full_tcp --max-retries=0 \
-    #              --reason -n -p- -Pn ${ip}
-#         if grep /open/ ${folder}/full_tcp.gnmap; then
-#             notify-send -t 7000 "Open ports at ${ip}" "$(grep -E -o '[0-9]+/open/' ${folder}/full_tcp.gnmap)"
-#         fi
-#     fi
-#}
+nmap_tcp_full(){
+    local ip=${1}
+    local file=../ips/${ip}/full_tcp
+    if [[ ! -f ${file}.xml ]]; then
+        notify-send -t 5000 "FULL TCP scanning ${ip}..."
+        sudo $NMAP \
+             -sT \
+             -vv \
+             -oA ${file} \
+             --max-retries=0 \
+             --reason \
+             -n \
+             -p- \
+             -Pn ${ip}
+        if grep /open/ ${file}.gnmap; then
+            notify-send -t 7000 \
+                        "Open ports at ${ip}" \
+                        "$(grep -E -o '[0-9]+/open/' ${file}.gnmap)"
+        fi
+    fi
+}
 nmap_ext(){
     local nmap_ext=( ssh ssl smtp pop3 tls imap )
     local nmap_string=""
@@ -89,7 +99,6 @@ nmap_ext(){
     done
     echo "${nmap_string}"
 }
-
 nmap_tcp_version(){
     local ip=${1}
     local file=../ips/${ip}/full_tcp_version
@@ -100,6 +109,7 @@ nmap_tcp_version(){
         sudo ${NMAP} \
              -sTV \
              --script='default or banner or unusual-port'"$(nmap_ext)" -v \
+             --script-args="http.useragent='${UA}'" \
              -oA ${file} \
              --reason \
              -n \
@@ -109,17 +119,17 @@ nmap_tcp_version(){
     fi
 }
 
-# get_ips_up_clear "${DOMAIN}" |
-#     while read -r ip ; do
-#         nmap_tcp_fast ${ip}
-#     done
-
 get_ips_up_clear "${DOMAIN}" | rm_waf_ips |
     while read -r ip ; do
-        nmap_udp_20  ${ip}
-        bingip2host  ${ip}
-        #nmap_tcp_full    ${ip}
-        #nmap_tcp_version ${ip}
+        nmap_tcp_fast ${ip}
+        nmap_udp_20   ${ip}
+        #bingip2host      ${ip}
     done
+
+# get_ips_up_clear "${DOMAIN}" | rm_waf_ips |
+#     while read -r ip ; do
+#         nmap_tcp_full    ${ip}
+#         nmap_tcp_version ${ip}
+#     done
 
 echo "${0##*/} is DONE!"
