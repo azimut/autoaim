@@ -1,8 +1,10 @@
 #!/bin/bash
 
-set -exuo pipefail
+set -exu
 
 DOMAIN=${1:-${PWD##*/}}
+
+[[ -f ../env.sh ]] && source ../env.sh
 
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
@@ -31,7 +33,7 @@ nmap_nsec(){
 # To any with NS
 dig_any(){
     local domain=${1} ns=${2}
-    echo "SELECT DISTINCT ON (ip) ip FROM dns_other WHERE name='${ns}'" | praw |
+    dig @1.1.1.1 +short ${ns} A | trim |
         while read -r ip; do
             file=${FOLDER}/dig/any_${ns}_${ip}_${domain}
             if [[ ! -f ${file} ]]; then
@@ -43,7 +45,7 @@ dig_any(){
 # To any with NS/sub
 dig_axfr(){
     local domain=${1} ns=${2}
-    echo "SELECT DISTINCT ON (ip) ip FROM dns_other WHERE name='${ns}'" | praw |
+    dig @1.1.1.1 +short ${ns} A | trim |
         while read -r ip; do
             file=${FOLDER}/dig/axfr_${ns}_${ip}_${domain}
             if [[ ! -f ${file} ]]; then
@@ -122,12 +124,12 @@ for qtype in 'A' 'AAAA'; do
 done
 
 # basic scan ONLY to ones that are worth
-dns_ns "${DOMAIN}" | grep -F -v -e awsdns -e cscdns | cut -f2 -d'|' | sort -u |
+dns_ns "${DOMAIN}" | cut -f2 -d'|' | sort -u | grep -F -v -e '.awsdns-' -e cscdns -e '.cloudfront.net.' -e 'mailgun.org' |
     while read -r ns; do
         fingerprint ${ns}
     done
 
-# NS-DOMAIN joined queries
+# NS-DOMAIN joined queries, on all as they might be mis-configured...i think
 dns_ns "${DOMAIN}" |
     while IFS='|' read -r domain ns; do
         graph_trusttrees ${domain}

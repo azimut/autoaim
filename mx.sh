@@ -4,6 +4,8 @@ set -exuo pipefail
 
 DOMAIN=${1:-${PWD##*/}}
 
+[[ -f ../env.sh ]] && source ../env.sh
+
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
 
@@ -55,7 +57,7 @@ for qtype in 'A' 'AAAA'; do
 done
 
 # scan mx domains
-dns_mx "${DOMAIN}" | cut -f2 -d'|' | sort -u |
+dns_mx "${DOMAIN}" | cut -f2 -d'|' | sort -u | grep -F -v -e 'mailgun.org' -e 'google.com' -e 'googlemail.com' |
     while read -r mx; do
         nmap_mx ${mx}
     done
