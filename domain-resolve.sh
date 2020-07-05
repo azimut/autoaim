@@ -8,8 +8,12 @@ FOLDER=domains/resolved
 
 mkdir -p ${FOLDER}/
 
+[[ -f ../env.sh ]] && source ../env.sh
+
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
+
+initdb
 
 massdns(){
     local type=${1}
@@ -112,4 +116,4 @@ if [[ ${#domains[@]} -gt 0 ]]; then
 fi
 # TODO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
 
-echo "${0##*/} is DONE!"
+wait && echo "${0##*/} is DONE!"
