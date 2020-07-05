@@ -20,14 +20,13 @@ DOMAIN=${1:-${PWD##*/}}
 BESTWHOIS=$HOME/projects/sec/bestwhois/bestwhois
 AMASS=$HOME/projects/sec/amass/amass
 ONEFORALL=$HOME/projects/sec/OneForAll/oneforall/oneforall.py
+
 FOLDER=domains
-
-. ${HOME}/projects/sec/autoaim/helpers.sh
-
 mkdir -p ${FOLDER}/amass
-mkdir -p ${FOLDER}/dig
 mkdir -p ${FOLDER}/nmap
 mkdir -p ${FOLDER}/oneforall
+
+. ${HOME}/projects/sec/autoaim/helpers.sh
 
 # Only main domain, expire time
 whoisxml(){
