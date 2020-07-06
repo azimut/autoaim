@@ -996,3 +996,36 @@ scan_report(){
           GROUP BY i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger
           ORDER BY d.name,n.ip" | praw
 }
+
+scan_report_no_waf(){
+    local root="${1}"
+    echo "SELECT i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger
+          FROM nmap_scan n
+          JOIN dns_record d ON d.ip=n.ip AND n.pstatus='open'
+          JOIN ip_data    i ON i.ip=d.ip
+          LEFT JOIN dns_a_wildcard w ON d.ip=w.ip
+          WHERE d.root='${root}'
+            AND (w.ip IS NULL OR w.base=d.name)
+            AND i.asn NOT IN ('Akamai',
+                              'CLOUDFRONT',
+                              'LOCAL',
+                              'DYNDNS,US',
+                              'INCAPSULA,US',
+                              'Cloudflare',
+                              'FASTLY,US',
+                              'DOSARREST,US',
+                              'MICROSOFT-CORP-MSN-AS-BLOCK,US',
+                              'ASN-CHEETA-MAIL,US')
+          GROUP BY i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger
+          ORDER BY d.name,n.ip" | praw
+}
+#------------------------------
+http_report(){
+    echo "SELECT d.name,i.asn,h.method,h.host,h.path,h.length
+          FROM http_entries h
+          JOIN ip_data i ON i.ip=INET(h.host) AND h.path!='/'
+          JOIN dns_record d ON d.ip=i.ip
+          WHERE h.status=200 AND h.length!=23
+          GROUP BY d.name,i.asn,h.method,h.host,h.path,h.length
+          ORDER BY h.path;" | praw
+}
