@@ -2,10 +2,24 @@
 
 *Personal use*, paths assumed to exist.
 
-** cleanupresolvers.sh
-Intented for use to cleanup the massdns resolvers, just ping and dig.
+** discover
+*** domain.sh
+get subdomains from domain
+*** domain-brute.sh
+bruteforces domain using jhaddix all.txt
+*** domain-resolve.sh
+resolves subdomains found + tries some variations and subdomains from siblings
 
-** resolvers.txt, raw_resolvers.txt
+** scan
+*** up.sh
+ping scan ips found and get basic informations from them, like if they belong to cloud providers
+*** scan.sh
+nmap TCP, UDP and TCPFULL just to discover open ports
+
+** resolvers
+*** cleanupresolvers.sh
+Intented for use to cleanup the massdns resolvers, just ping and dig.
+*** resolvers.txt, raw_resolvers.txt
 cleanup resolvers version of IPs from massdns based on cleanupresolvers.sh
 
 ** TLD specific
