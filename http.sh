@@ -24,18 +24,17 @@
 
 DOMAIN=${1:-${PWD##*/}}
 
-FOLDER=http
-
 SUBDOMAINIZER=$HOME/projects/sec/SubDomainizer/SubDomainizer.py
 NIKTO=$HOME/projects/sec/nikto/program/nikto.pl
 
+FOLDER=http
 mkdir -p ${FOLDER}/SubDomainizer
 mkdir -p ${FOLDER}/hakrawler
 mkdir -p ${FOLDER}/nikto
 
+[[ -f ../env.sh ]] && source ../env.sh
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
-
 
 # if is_port_open 8080 127.0.0.1; then
 #     export http_proxy=http://127.0.0.1:8080
@@ -45,13 +44,14 @@ mkdir -p ${FOLDER}/nikto
 # To any resolved subdomain
 subdomainizer(){
     local domain=${1}
-    file=${FOLDER}/../SubDomainizer/sub_${domain}.txt
+    file=${FOLDER}/SubDomainizer/sub_${domain}.txt
     if [[ ! -f ${file} ]]; then
         #-g -gt $GITHUB_TOKEN # it is buggy
-        timeout --signal=9 120 python3 ${SUBDOMAINIZER} \
+        timeout --signal=9 120 \
+                python3 ${SUBDOMAINIZER} \
                 -k \
                 --url ${domain} \
-                -o ${file} 2>&1 | tee ${FOLDER}/../SubDomainizer/all_${domain}.txt
+                -o ${file} 2>&1 | tee ${FOLDER}/SubDomainizer/all_${domain}.txt
     fi
 }
 
@@ -125,53 +125,70 @@ nmap_http(){
 hakrawler(){
     local port="${1}" proto="${2}" domain="${3}"
     local url; url="$(build_url ${port} ${proto} ${domain})"
-    local file=${FOLDER}/../hakrawler/out_${domain}_${port}.txt
+    local file=${FOLDER}/hakrawler/out_${domain}_${port}.txt
     if [[ ! -f ${file} ]]; then
-        timeout 120 hakrawler \
-                -scope yolo \
-                -linkfinder \
-                -depth 3 \
-                -url ${url} 2>&1 \
-            | tee ${file}
+        (
+            timeout 240 hakrawler \
+                    -insecure \
+                    -usewayback \
+                    -scope subs \
+                    -linkfinder \
+                    -depth 3 \
+                    -plain \
+                    -url ${url} 2>&1 \
+                | tee ${file}
+        )
     fi
-}
-
-niktourl(){
-    local plugins=(
-        auth content_search cookies paths siebel # greps
-        headers
-    )
-    niktoweb ${*} "${plugins[@]}"
 }
 niktosite(){
     local plugins=(
         msgs outdated parked robots # greps
         apacheusers negotiate httpoptions clientaccesspolicy favicon sitefiles # gets
     )
-    niktoweb ${*} "${plugins[@]}"
+    [[ ${#} -ne 4 ]] && return 1
+    niktoweb ${*} '/' 'site' "${plugins[@]}"
 }
+niktourl(){
+    local plugins=(
+        auth content_search cookies paths siebel # greps
+        headers
+    )
+    niktoweb ${*} 'url' "${plugins[@]}"
+}
+# Note: works with ip=vhost too.
+# -Display V
 niktoweb(){
-    # -useproxy
-    # -vhost -port -host
-    # -404string
-    # -maxtime
-    # -Display V
-    local port="${1}" proto="${2}" vhost="${3}" ip="${4}"; shift; shift; shift; shift
+    local port="${1}" proto="${2}" vhost="${3}" ip="${4}" root="${5}" scan="${6}"
+    shift;shift;shift;shift;shift;shift
     local plugins=("${@}"); plugins+=(report_text)
-    local proxy=""; [[ ${proto} == "http"  ]] && proxy='-useproxy http://127.0.0.1:8080'
-    local ssl=""  ; [[ ${proto} == "https" ]] && ssl='-ssl' || ssl='-nossl'
-    local file=${FOLDER}/nikto/run_${port}_${proto}_${vhost}_${ip}.log
-    $NIKTO -Plugins "$(join_by ';' "${plugins[@]}")" \
-           -ask no -nointeractive \
-           -useragent "${UA}" \
-           -F txt -output ${file} \
-           -Cgidirs none \
-           -Tuning x123456789abcde \
-           ${ssl} ${proxy} -vhost ${vhost} -port ${port} -host ${ip}
+    local ssl; [[ ${proto} == "https" ]] && ssl='-ssl' || ssl='-nossl'
+    local encoded; encoded="$(base64 <<< "${root}" | sed 's#=*$##g')"
+    local file=${FOLDER}/nikto/run_${port}_${proto}_${vhost}_${ip}_${encoded}_${scan}.log
+    if [[ ! -f ${file} ]] ; then
+        proxychains $NIKTO -Plugins "$(join_by ';' "${plugins[@]}")" \
+                    -ask no -nointeractive \
+                    -useragent "${UA}" \
+                    -F txt -output ${file} \
+                    -Cgidirs none \
+                    -Tuning x123456789abcde \
+                    ${ssl} -vhost ${vhost} -port ${port} -host ${ip} -root ${root}
+    fi
 }
+
+get_proto(){
+    [[ ${1} == *https* || ${1} == "ssl/http" ]] &&  echo 'https' || echo 'http'
+}
+
+scan_report_no_waf "${DOMAIN}" | grep -F http |
+    while IFS='|' read -r _ ip host _ port _ service _; do
+        niktosite ${port} "$(get_proto ${service})" ${host} ${ip}
+        #niktourl  ${port} "$(get_proto ${service})" ${host} ${ip} '/'
+        #niktosite ${port} "$(get_proto ${service})" ${ip}   ${ip}
+    done
 
 #niktourl  80 http starbucks.com.ar 98.99.252.176
 #niktosite 80 http starbucks.com.ar 98.99.252.176
+#niktosite 80 http 98.99.252.176    98.99.252.176
 
 # # TODO: do port 443
 # # Work on resolved domains
