@@ -24,9 +24,9 @@ aquatone_processed_domains(){
 
 ports="$(scan_report ${DOMAIN} | grep -F http | cut -f5 -d'|' | sort -nu | paste -sd,)"
 
-# IPs
+# IPs, ignore waf ips
 mapfile -t pending < <(complement <(aquatone_processed_ips) \
-                                  <(scan_report ${DOMAIN} | grep -F http | cut -f2 -d'|' | sort -Vu))
+                                  <(scan_report ${DOMAIN} | grep -F http | cut -f2 -d'|' | sort -Vu | rm_local_ips | rm_waf_ips))
 if [[ ${#pending[@]} -gt 0 ]]; then
     echo "Processing ${#pending[@]} ips..."
     notify-send -t 15000 "Aquatone" "Processing ${#pending[@]} ips on ports ${ports}"
