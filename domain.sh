@@ -17,10 +17,6 @@ set -exu
 
 DOMAIN=${1:-${PWD##*/}}
 
-BESTWHOIS=$HOME/projects/sec/bestwhois/bestwhois
-AMASS=$HOME/projects/sec/amass/amass
-ONEFORALL=$HOME/projects/sec/OneForAll/oneforall/oneforall.py
-
 FOLDER=domains
 mkdir -p ${FOLDER}/amass
 mkdir -p ${FOLDER}/nmap

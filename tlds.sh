@@ -5,6 +5,7 @@
 DOMAIN=${1:-${PWD##*/}}
 CONCURRENCY=${2:-50} # default is 10k too many drops methinsk
 
+[[ -f ../env.sh ]] && source ../env.sh
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
 

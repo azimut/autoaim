@@ -4,6 +4,9 @@ UA="Mozilla/5.0 (Windows NT 6.1; WOW64; rv:12.0) Gecko/20100101 Firefox/12.0"
 
 DATE=$(date +%s)
 
+BESTWHOIS=$HOME/projects/sec/bestwhois/bestwhois
+AMASS=$HOME/projects/sec/amass/amass
+ONEFORALL=$HOME/projects/sec/OneForAll/oneforall/oneforall.py
 BING=$HOME/projects/sec/bing-ip2hosts/bing-ip2hosts
 AQUATONE=$HOME/projects/sec/aquatone/aquatone
 MASSDNS=$HOME/projects/sec/massdns

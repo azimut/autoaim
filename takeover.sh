@@ -5,6 +5,7 @@ set -exuo pipefail
 DOMAIN=${1:-${PWD##*/}}
 FOLDER=takeover
 
+[[ -f ../env.sh ]] && source ../env.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
 
 mkdir -p ${FOLDER}

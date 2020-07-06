@@ -9,7 +9,6 @@ DOMAIN=${1:-${PWD##*/}}
 . ${HOME}/projects/sec/autoaim/persistence.sh
 
 FOLDER=ns
-
 mkdir -p ${FOLDER}/dig
 mkdir -p ${FOLDER}/nmap
 mkdir -p ${FOLDER}/trusttrees

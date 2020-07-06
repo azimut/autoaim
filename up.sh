@@ -19,7 +19,6 @@ SCRIPTS=(
 )
 
 [[ -f ../env.sh ]] && source ../env.sh
-
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
 
