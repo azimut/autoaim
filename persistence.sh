@@ -1021,11 +1021,10 @@ scan_report_no_waf(){
 }
 #------------------------------
 http_report(){
-    echo "SELECT d.name,i.asn,h.method,h.host,h.path,h.length
+    echo "SELECT i.asn,h.qheaders->>'Host' as rhost,h.host,h.status,h.method,h.path,h.length
           FROM http_entries h
-          JOIN ip_data i ON i.ip=INET(h.host) AND h.path!='/'
-          JOIN dns_record d ON d.ip=i.ip
-          WHERE h.status=200 AND h.length!=23
-          GROUP BY d.name,i.asn,h.method,h.host,h.path,h.length
-          ORDER BY h.path;" | praw
+          LEFT JOIN ip_data i ON host(i.ip)=h.host
+          WHERE h.length!=23 and h.status=200
+          GROUP BY i.asn,rhost,h.host,h.status,h.method,h.path,h.length
+          ORDER BY rhost" | praw
 }
