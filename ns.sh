@@ -5,7 +5,6 @@ set -exu
 DOMAIN=${1:-${PWD##*/}}
 
 [[ -f ../env.sh ]] && source ../env.sh
-
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
 
