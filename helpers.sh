@@ -1,24 +1,28 @@
 #!/bin/bash
 
-UA="Mozilla/5.0 (Windows NT 6.1; WOW64; rv:12.0) Gecko/20100101 Firefox/12.0"
+export UA="Mozilla/5.0 (Windows NT 6.1; WOW64; rv:12.0) Gecko/20100101 Firefox/12.0"
 
-DATE=$(date +%s)
+export DATE=$(date +%s)
 
-BESTWHOIS=$HOME/projects/sec/bestwhois/bestwhois
-AMASS=$HOME/projects/sec/amass/amass
-ONEFORALL=$HOME/projects/sec/OneForAll/oneforall/oneforall.py
-BING=$HOME/projects/sec/bing-ip2hosts/bing-ip2hosts
-AQUATONE=$HOME/projects/sec/aquatone/aquatone
-MASSDNS=$HOME/projects/sec/massdns
-AUTOAIM=$HOME/projects/sec/autoaim
-NMAP=/usr/local/bin/nmap
+export AMASS=$HOME/projects/sec/amass/amass
+export AQUATONE=$HOME/projects/sec/aquatone/aquatone
+export AUTOAIM=$HOME/projects/sec/autoaim
+export BESTWHOIS=$HOME/projects/sec/bestwhois/bestwhois
+export BING=$HOME/projects/sec/bing-ip2hosts/bing-ip2hosts
+export GRAFTCP=$HOME/projects/graftcp-master/graftcp
+export MASSDNS=$HOME/projects/sec/massdns
+export NIKTO=$HOME/projects/sec/nikto/program/nikto.pl
+export ONEFORALL=$HOME/projects/sec/OneForAll/oneforall/oneforall.py
+export SUBDOMAINIZER=$HOME/projects/sec/SubDomainizer/SubDomainizer.py
+export NMAP=/usr/local/bin/nmap
 
-RESOLVERS=$HOME/projects/sec/autoaim/data/resolvers.txt
+export RESOLVERS=$HOME/projects/sec/autoaim/data/resolvers.txt
 
 #==================================================
 # Pure - Non env dependent
 #==================================================
 join_by() { local IFS="$1"; shift; echo "$*"; }
+export -f join_by
 prefix(){ sed 's#^#'"${1}"'#g' /dev/stdin; }
 suffix(){ sed 's#$#'"${1}"'#g' /dev/stdin; }
 echoerr(){
@@ -148,3 +152,231 @@ complement(){
     local fileb="$2"
     grep -F -vxf "$filea" "$fileb"
 }
+#------------------------------
+# HTTP
+
+build_url(){
+    local port="${1}" proto="${2}" domain="${3}"
+    local url="${proto}://${domain}"
+    if [[ ${port} -ne 80 && ${port} -ne 443 ]]; then
+        url+=":${port}"
+    fi
+    echo ${url}
+}
+get_proto(){
+    [[ ${1} == *https* || ${1} == "ssl/http" ]] &&  echo 'https' || echo 'http'
+}
+
+get_port(){
+    local url=${1}
+    local port=""
+    port=$(unfurl format '%P' <<< ${url})
+    if [[ -z ${port} ]]; then
+        [[ ${url} == https* ]] && port=443 || port=80
+    fi
+    echo ${port}
+}
+export -f get_port
+
+# Note: works with ip=vhost too.
+# -Display V
+niktoip(){
+    local port="${1}" proto="${2}" vhost="${3}" ip="${4}" root="${5}" scan="${6}" plugins="${7}"
+    plugins+=";report_text"
+    local ssl; [[ ${proto} == "https" ]] && ssl='-ssl' || ssl='-nossl'
+    local encoded; encoded="$(base64 <<< "${root}" | sed 's#=*$##g')"
+    local file=${FOLDER}/nikto/run_${port}_${proto}_${vhost}_${ip}_${encoded}_${scan}.log
+    if [[ ! -f ${file} ]] ; then
+        proxychains -q $NIKTO \
+                    -Plugins "@NONE;${plugins}" \
+                    -ask no -nointeractive \
+                    -useragent "${UA}" \
+                    -F txt -output ${file} \
+                    -Cgidirs none \
+                    -Tuning x123456789abcde \
+                    ${ssl} -vhost ${vhost} -port ${port} -host ${ip} -root ${root}
+    fi
+}
+export -f niktoip
+niktohost(){
+    local host="${1}" scan="${2}" plugins="${3}"
+    plugins+=";report_text"
+    local ssl; [[ ${host} == https* ]] && ssl='-ssl' || ssl='-nossl'
+    local encoded; encoded="$(base64 <<< "${host}" | sed 's#=*$##g')"
+    local file=${FOLDER}/nikto/run_${encoded}_${scan}.log
+    if [[ ! -f ${file} ]] ; then
+        proxychains -q $NIKTO \
+                    -Plugins "@NONE;${plugins}" \
+                    -ask no -nointeractive \
+                    -useragent "${UA}" \
+                    -F txt -output ${file} \
+                    -Cgidirs none \
+                    -Tuning x123456789abcde \
+                    ${ssl} -host "${host}"
+    fi
+}
+export -f niktohost
+niktocmd(){
+    if [[ ${#} -eq 5 ]]; then
+        niktoip   ${1} ${2} ${3} ${4} ${5}
+    elif [[ ${#} -eq 1 ]]; then
+        niktohost ${1}
+    fi
+}
+#----------------------
+# TODO: '-depth 1 -scope yolo' to extract external urls
+hakrawlerip(){
+    local port="${1}" proto="${2}" domain="${3}"
+    local url; url="$(build_url ${port} ${proto} ${domain})"
+    local file=${FOLDER}/hakrawler/out_${proto}_${domain}_${port}.txt
+    if [[ ! -f ${file} ]]; then
+        timeout --signal=9 $((60*10)) $GRAFTCP hakrawler \
+                -insecure \
+                -usewayback \
+                -scope subs \
+                -linkfinder \
+                -depth 10 \
+                -url ${url} 2>&1 \
+            | tee ${file}
+    fi
+}
+hakrawlerhost(){
+    local host="${1}"
+    local encoded; encoded="$(base64 <<< "${host}" | sed 's#=*$##g')"
+    local file=${FOLDER}/hakrawler/out_${encoded}.txt
+    if [[ ! -f ${file} ]]; then
+        timeout --signal=9 $((60*10)) $GRAFTCP hakrawler \
+                -insecure \
+                -usewayback \
+                -scope subs \
+                -linkfinder \
+                -depth 10 \
+                -url ${host} 2>&1 \
+            | tee ${file}
+    fi
+}
+#------------------------------
+# TODO: ipv6
+nmaprun(){
+    local stype="${1}" domainorip="${2}" port="${3}" scripts="${4}"
+    local file="${FOLDER}/nmap/${domainorip}_${port}_${stype}"
+    [[ -f ${file}.xml ]] && return 0
+    proxychains -q -f $AUTOAIM/conf/proxychains.http.conf $NMAP \
+                -n \
+                -vv -d \
+                -sT \
+                -oA "${file}" \
+                --script="${scripts}" \
+                --script-args="http.useragent='${UA}',http.max-cache-size=$((5*1024*1024))" \
+                --reason \
+                -p"${port}" \
+                "${domainorip}" 2>&1 | tee ${FOLDER}/nmap/output_${domainorip}_${port}_${stype}.log
+}
+export -f nmaprun
+
+nmapruntor(){
+    local stype="${1}" domainorip="${2}" port="${3}" scripts="${4}"
+    local file="${FOLDER}/nmap/${domainorip}_${port}_${stype}"
+    [[ -f ${file}.xml ]] && return 0
+    proxychains -q -f $AUTOAIM/conf/proxychains.http_8081.conf $NMAP \
+                -n \
+                -vv -d \
+                -sT \
+                -oA "${file}" \
+                --script="${scripts}" \
+                --script-args="http.useragent='${UA}',http.max-cache-size=$((5*1024*1024))" \
+                --reason \
+                -p"${port}" \
+                "${domainorip}" 2>&1 | tee ${FOLDER}/nmap/output_${domainorip}_${port}_${stype}.log
+}
+export -f nmapruntor
+
+export http_common=(
+    http-auth                    # parses 401 pages header for auth method
+    http-server-header           # show Server header for missing -sV
+    https-redirect               # show redirect from http to https
+    http-security-headers        # show some headers
+)
+export http_grep=(
+    http-affiliate-id            # greps html
+    http-bigip-cookie            # greps html
+    http-generator               # greps html <meta>
+    http-gitweb-projects-enum    # greps html
+    http-ls                      # greps html on directory index
+    http-title                   # greps html <title>
+    http-cisco-anyconnect        # greps Headers
+    http-cookie-flags            # greps Headers
+    http-date                    # greps Headers
+    http-webdav-scan             # greps Headers
+)
+export http_waf_spider=(
+    http-backup-finder           # spider GET some backup extensions/prefix
+    http-auth-finder             # spider looking for 401 return code
+    http-sitemap-generator       # spider make sitemap
+    http-feed                    # spider greps feeds
+    http-comments-displayer      # spider greps comments
+    http-grep                    # spider greps emails,ips,phone or custom
+    http-csrf                    # spider greps forms for CSRF
+    http-referer-checker         # spider greps for external script
+    http-errors                  # spider for pages returing an error code >400
+)
+export http_waf_site=(
+    http-useragent-tester        # diff responses with different User-Agents set
+    http-mobileversion-checker   # diff response on mobile User-Agent
+    http-favicon                 # get /favicon.ico
+    http-robots.txt              # get /robots.txt
+    http-cross-domain-policy     # get /crossdomain.xml and /clientaccesspolicy.xml
+    http-open-proxy
+)
+export http_nowaf_site=(
+    http-internal-ip-disclosure  # sends Header incomplete HTTP/1.0 without server
+    http-cors                    # sends Header
+    http-traceroute              # sends Header(s) Max-Forwards
+    http-iis-webdav-vuln         # tries PROPFIND
+    http-aspnet-debug            # tries DEBUG
+    http-trace                   # tries TRACE
+    http-svn-enum                # tries PROPFIND
+    http-svn-info                # tries PROPFIND
+    http-mcmp                    # tries PING
+    http-methods                 # tries GET/POST/OPTIONS/HEAD
+    http-put                     # tries PUT (no default file)
+)
+export http_get_site=(
+    http-apache-server-status    # get /server-status
+    http-avaya-ipoffice-users    # get /system/user/scn_user_list
+    http-git                     # get /.git/head
+    http-malware-host            # get /ts/in.cgi?open2
+    http-php-version             # get /?PHP=.......
+    http-qnap-nas-info           # get /cgi-bin/authLogin.cgi
+    http-trane-info              # get /evox/about
+    http-waf-fingerprint         # get paths
+
+    http-apache-negotiation      # gets different paths below in root
+    http-cakephp-version         # gets different files
+    http-config-backup           #+gets different paths(breaks...)
+    http-devframework            # gets different paths to identify a dev framework tech, also can spider
+    http-enum                    # gets different common paths like nikto
+    http-iis-short-name-brute    # gets paths
+    http-passwd                  #Xgets different paths trying path transversal
+    http-userdir-enum            # gets different paths mod_userdir
+
+    http-adobe-coldfusion-apsa1301
+    http-awstatstotals-exec      # exploit
+    http-axis2-dir-traversal     # exploit
+    http-barracuda-dir-traversal # exploit
+    http-dlink-backdoor          # exploit (find backdoor)
+    http-domino-enum-passwords
+    http-frontpage-login
+    http-hp-ilo-info
+)
+export http_nowaf_spider=(
+    http-jsonp-detection         # spider GETs urls with params
+    http-open-redirect           # spider exploit
+    http-rfi-spider              # spider exploit
+    http-sql-injection           # spider exploit
+    http-fileupload-exploiter    # spider exploit
+    http-unsafe-output-escaping  # spider exploit xss
+    http-phpself-xss             # spider exploit xss
+    http-stored-xss              # spider exploit xss
+    http-dombased-xss            # spider exploit xss
+)

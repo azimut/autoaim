@@ -808,6 +808,7 @@ purge(){
     local s="${1}" s2=""
     until s2="${s#[[:space:]]}"; [ "$s2" = "$s" ]; do s="$s2"; done
     until s2="${s%[[:space:]]}"; [ "$s2" = "$s" ]; do s="$s2"; done
+    s="${s%\"}"; s="${s#\"}"
     [[ -z ${s} ]] && echo 'NULL' || echo "'${s}'"
 }
 
@@ -987,22 +988,60 @@ dns_weird(){
 
 scan_report(){
     local root="${1}"
-    echo "SELECT i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger
+    echo "SELECT i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger,
+                 CASE WHEN n.service LIKE '%https%' OR n.service LIKE 'ssl/http%' THEN 'https'
+                      ELSE 'http'
+                 END || '://' || d.name || CASE WHEN n.port=80  THEN ''
+                                                WHEN n.port=443 THEN ''
+                                                ELSE ':' || n.port::TEXT END || '/'
           FROM nmap_scan n
-          JOIN dns_record d ON d.ip=n.ip AND n.pstatus='open'
-          JOIN ip_data    i ON i.ip=d.ip
+          JOIN      dns_record     d ON d.ip=n.ip AND n.pstatus='open'
+          JOIN      ip_data        i ON i.ip=d.ip
           LEFT JOIN dns_a_wildcard w ON d.ip=w.ip
-          WHERE d.root='${root}' AND (w.ip IS NULL OR w.base=d.name)
+          WHERE d.root='${root}'
+            AND (w.ip IS NULL OR w.base=d.name)
+          GROUP BY i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger
+          ORDER BY d.name,n.ip" | praw
+}
+
+scan_report_waf(){
+    local root="${1}"
+    echo "SELECT i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger,
+                 CASE WHEN n.service LIKE '%https%' OR n.service LIKE 'ssl/http%' THEN 'https'
+                      ELSE 'http'
+                 END || '://' || d.name || CASE WHEN n.port=80  THEN ''
+                                                WHEN n.port=443 THEN ''
+                                                ELSE ':' || n.port::TEXT END || '/'
+          FROM nmap_scan n
+          JOIN      dns_record     d ON d.ip=n.ip AND n.pstatus='open'
+          JOIN      ip_data        i ON i.ip=d.ip
+          LEFT JOIN dns_a_wildcard w ON d.ip=w.ip
+          WHERE d.root='${root}'
+            AND (w.ip IS NULL OR w.base=d.name)
+            AND i.asn IN ('Akamai',
+                              'CLOUDFRONT',
+                              'DYNDNS,US',
+                              'INCAPSULA,US',
+                              'Cloudflare',
+                              'FASTLY,US',
+                              'DOSARREST,US',
+                              'MICROSOFT-CORP-MSN-AS-BLOCK,US',
+                              'ASN-CHEETA-MAIL,US')
           GROUP BY i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger
           ORDER BY d.name,n.ip" | praw
 }
 
 scan_report_no_waf(){
     local root="${1}"
-    echo "SELECT i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger
-          FROM nmap_scan n
-          JOIN dns_record d ON d.ip=n.ip AND n.pstatus='open'
-          JOIN ip_data    i ON i.ip=d.ip
+    echo "SELECT i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger,
+                 CASE WHEN n.service LIKE '%https%' OR n.service LIKE 'ssl/http%' THEN 'https'
+                      ELSE 'http'
+                 END || '://' || d.name || CASE WHEN n.port=80  THEN ''
+                                                WHEN n.port=443 THEN ''
+                                                ELSE ':' || n.port::TEXT END || '/'
+          FROM      nmap_scan      n
+          JOIN      dns_record     d ON d.ip=n.ip AND n.pstatus='open'
+          JOIN      ip_data        i ON i.ip=d.ip
           LEFT JOIN dns_a_wildcard w ON d.ip=w.ip
           WHERE d.root='${root}'
             AND (w.ip IS NULL OR w.base=d.name)
@@ -1019,12 +1058,26 @@ scan_report_no_waf(){
           GROUP BY i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger
           ORDER BY d.name,n.ip" | praw
 }
+
 #------------------------------
 http_report(){
-    echo "SELECT i.asn,h.qheaders->>'Host' as rhost,h.host,h.status,h.method,h.path,h.length
+    echo "SELECT i.asn,
+                 ROUND(h.length/1024.0/1024.0,4) as mbytes,
+                 h.qheaders->>'Host' as rhost,
+                 h.host,h.status,h.method,h.path
           FROM http_entries h
           LEFT JOIN ip_data i ON host(i.ip)=h.host
           WHERE h.length!=23 and h.status=200
           GROUP BY i.asn,rhost,h.host,h.status,h.method,h.path,h.length
           ORDER BY rhost" | praw
 }
+
+#------------------------------
+
+iwp(){
+    echo "SELECT ip FROM ip_data WHERE asn IS NOT NULL" | praw
+}
+rm_ips_with_provider(){
+    complement <(iwp) /dev/stdin
+}
+
