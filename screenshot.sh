@@ -17,16 +17,16 @@ aquatone_processed_ips(){
     local file=${FOLDER}/ips/aquatone_urls.txt
     [[ -f ${file} ]] && cut -f3 -d/ ${file} | sort -Vu
 }
-aquatone_processed_domains(){
+aquatone_processed_urls(){
     local file=${FOLDER}/domains/aquatone_urls.txt
-    [[ -f ${file} ]] && cut -f3 -d/ ${file} | sort -u
+    [[ -f ${file} ]] && sort -u < ${file}
 }
 
-ports="$(scan_report ${DOMAIN} | grep -F http | cut -f5 -d'|' | sort -nu | paste -sd,)"
+ports="$(scan_report ${DOMAIN} | grep -F http | grep -v 'ssl/[^h]' | cut -f5 -d'|' | sort -nu | paste -sd,)"
 
 # IPs, ignore waf ips
 mapfile -t pending < <(complement <(aquatone_processed_ips) \
-                                  <(scan_report ${DOMAIN} | grep -F http | cut -f2 -d'|' | sort -Vu | rm_local_ips | rm_waf_ips))
+                                  <(scan_report ${DOMAIN} | grep -F http | grep -v 'ssl/[^h]' | cut -f2 -d'|' | sort -Vu | rm_local_ips | rm_waf_ips))
 if [[ ${#pending[@]} -gt 0 ]]; then
     echo "Processing ${#pending[@]} ips..."
     notify-send -t 15000 "Aquatone" "Processing ${#pending[@]} ips on ports ${ports}"
@@ -41,8 +41,8 @@ if [[ ${#pending[@]} -gt 0 ]]; then
 fi
 
 # Domains
-mapfile -t pending < <(complement <(aquatone_processed_domains) \
-                                  <(scan_report ${DOMAIN} | grep -F http | cut -f3 -d'|' | sort -u))
+mapfile -t pending < <(complement <(aquatone_processed_urls) \
+                                  <(scan_report ${DOMAIN} | grep -F http | grep -v 'ssl/[^h]' | cut -f9 -d'|' | sort -u))
 if [[ ${#pending[@]} -gt 0 ]]; then
     echo "Processing ${#pending[@]} domains..."
     notify-send -t 15000 "Aquatone" "Processing ${#pending[@]} ips on ports ${ports}"
