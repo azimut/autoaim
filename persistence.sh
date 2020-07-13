@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS dns_record(
     rcode     VARCHAR(16)  NOT NULL,
     data      VARCHAR(512),
     ip        INET);
+CREATE INDEX IF NOT EXISTS root_index ON dns_record(root);
 CREATE TABLE IF NOT EXISTS ip_ptr (
     timestamp TIMESTAMP   DEFAULT NOW(),
     ip        INET        NOT NULL,
@@ -679,7 +680,7 @@ rm_nxdomain(){
 resolved_hosts(){
     local root="${1}"
     echo "SELECT name, ip
-    FROM dns_record
+    FROM recent_dns_record
     WHERE root='${root}'
     AND qtype='A'
     AND qtype=rtype
@@ -690,7 +691,7 @@ resolved_hosts(){
 resolved_domains(){
     local root="${1}"
     echo "SELECT DISTINCT ON(name) name
-    FROM dns_record
+    FROM recent_dns_record
     WHERE root='${root}'
     AND qtype='A'
     AND (rtype IS NULL OR qtype=rtype) -- include all noerror with empty response
@@ -699,7 +700,7 @@ resolved_domains(){
 resolved_ips(){
     local root="${1}"
     echo "SELECT DISTINCT ON(ip) ip
-    FROM dns_record
+    FROM recent_dns_record
     WHERE root='${root}'
     AND qtype='A'
     AND qtype=rtype
@@ -857,6 +858,7 @@ get_waf_ips(){
           WHERE p.ptr LIKE '%akamaitechnologies%'
              OR p.ptr LIKE '%cloudfront.net%'
              OR d.asn IN ('Akamai',
+                          'AzureFrontDoor.Frontend',
                           'CLOUDFRONT',
                           'LOCAL',
                           'DYNDNS,US',
@@ -1019,14 +1021,15 @@ scan_report_waf(){
           WHERE d.root='${root}'
             AND (w.ip IS NULL OR w.base=d.name)
             AND i.asn IN ('Akamai',
-                              'CLOUDFRONT',
-                              'DYNDNS,US',
-                              'INCAPSULA,US',
-                              'Cloudflare',
-                              'FASTLY,US',
-                              'DOSARREST,US',
-                              'MICROSOFT-CORP-MSN-AS-BLOCK,US',
-                              'ASN-CHEETA-MAIL,US')
+                          'AzureFrontDoor.Frontend',
+                          'CLOUDFRONT',
+                          'DYNDNS,US',
+                          'INCAPSULA,US',
+                          'Cloudflare',
+                          'FASTLY,US',
+                          'DOSARREST,US',
+                          'MICROSOFT-CORP-MSN-AS-BLOCK,US',
+                          'ASN-CHEETA-MAIL,US')
           GROUP BY i.asn,n.ip,d.name,n.proto,n.port,n.pstatus,n.service,n.finger
           ORDER BY d.name,n.ip" | praw
 }
@@ -1046,6 +1049,7 @@ scan_report_no_waf(){
           WHERE d.root='${root}'
             AND (w.ip IS NULL OR w.base=d.name)
             AND i.asn NOT IN ('Akamai',
+                              'AzureFrontDoor.Frontend',
                               'CLOUDFRONT',
                               'LOCAL',
                               'DYNDNS,US',
