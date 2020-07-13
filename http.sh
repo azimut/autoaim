@@ -33,11 +33,6 @@ mkdir -p ${FOLDER}/nmap
 . ${HOME}/projects/sec/autoaim/helpers.sh
 . ${HOME}/projects/sec/autoaim/persistence.sh
 
-# if is_port_open 8080 127.0.0.1; then
-#     export http_proxy=http://127.0.0.1:8080
-#     export https_proxy=http://127.0.0.1:8080
-# fi
-
 # To any resolved subdomain
 subdomainizer(){
     local domain=${1}
@@ -54,6 +49,11 @@ subdomainizer(){
 
 scan_report "${DOMAIN}" | grep -v 'ssl/[^h]' | cut -f9 -d'|' | sort -u | unwoven -t 25 |
     while read -r url; do
+        hakrawlerhost ${url}
+    done
+
+scan_report "${DOMAIN}" | grep -v 'ssl/[^h]' | cut -f9 -d'|' | sort -u | unwoven -t 25 |
+    while read -r url; do
         plugins=(
             auth content_search cookies paths siebel parked  # greps
             msgs outdated                                    # Headers
@@ -61,11 +61,6 @@ scan_report "${DOMAIN}" | grep -v 'ssl/[^h]' | cut -f9 -d'|' | sort -u | unwoven
         )
         printf '%s\0%s\0%s\0' "${url}" 'siteall' "$(join_by ';' "${plugins[@]}")"
     done | xargs -0 -n3 -P3 bash -c '{ set -x; niktohost "${@}"; }' --
-
-scan_report "${DOMAIN}" | grep -v 'ssl/[^h]' | cut -f9 -d'|' | sort -u | unwoven -t 25 |
-    while read -r url; do
-        hakrawlerhost ${url}
-    done
 
 scan_report_no_waf "${DOMAIN}" | grep -v 'ssl/[^h]' | cut -f9 -d'|' | sort -u | unwoven -t 25 |
     while read -r url; do
