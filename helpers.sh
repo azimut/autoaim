@@ -241,9 +241,12 @@ hakrawlerip(){
     fi
 }
 hakrawlerhost(){
-    local host="${1}"
-    local encoded; encoded="$(base64 <<< "${host}" | sed 's#=*$##g')"
-    local file=${FOLDER}/hakrawler/out_${encoded}.txt
+    local url="${1}"
+    local proto port domain;
+    proto=$(unfurl  format '%s' <<< ${url})
+    port=$(unfurl   format '%P' <<< ${url})
+    domain=$(unfurl format '%d' <<< ${url})
+    local file=${FOLDER}/hakrawler/out_${proto}_${domain}_${port}.txt
     if [[ ! -f ${file} ]]; then
         timeout --signal=9 $((60*10)) $GRAFTCP hakrawler \
                 -insecure \
@@ -251,7 +254,7 @@ hakrawlerhost(){
                 -scope subs \
                 -linkfinder \
                 -depth 10 \
-                -url ${host} 2>&1 \
+                -url ${url} 2>&1 \
             | tee ${file}
     fi
 }
