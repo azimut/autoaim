@@ -1,24 +1,29 @@
+-- NOTE: Just saving some useful queries to be reused for cli queries or functions
+
+--
+-- DNS
+--
 CREATE OR REPLACE VIEW recent_tld_records AS
   SELECT current.*
   FROM (SELECT name,qtype,MAX(timestamp) AS maximun FROM tld_records GROUP BY name,qtype) recent
   JOIN tld_records current
   ON current.timestamp=recent.maximun AND current.name=recent.name AND current.qtype=recent.qtype;
 
--- dns_record but latest results
 CREATE OR REPLACE VIEW recent_dns_record AS
   SELECT current.*
   FROM (SELECT name,qtype,MAX(timestamp) AS maximun FROM dns_record GROUP BY name,qtype) recent
   JOIN dns_record current
   ON current.timestamp=recent.maximun AND current.name=recent.name AND current.qtype=recent.qtype;
 
--- dns_other but latest results
 CREATE OR REPLACE VIEW recent_dns_other AS
   SELECT current.*
   FROM (SELECT name,qtype,MAX(timestamp) AS maximun FROM dns_other GROUP BY name,qtype) recent
   JOIN dns_other current
   ON current.timestamp=recent.maximun AND current.name=recent.name AND current.qtype=recent.qtype;
 
--- IPs currently UP
+--
+-- IP
+--
 CREATE OR REPLACE VIEW newip_history AS
   SELECT recent.maximo AS timestamp, recent.ip, current.is_up
   FROM (SELECT ip,MAX(timestamp) maximo FROM ip_history GROUP BY ip) recent
