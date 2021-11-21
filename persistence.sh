@@ -28,117 +28,13 @@ pcall(){
 # DROP TABLE IF EXISTS dns_a_wildcard;
 # DROP TABLE IF EXISTS dns_record;
 # DROP TABLE IF EXISTS ip_ptr;
-# DROP TABLE IF EXISTS ${IP_DATA};
-# DROP TABLE IF EXISTS ${IP_HISTORY};
+# DROP TABLE IF EXISTS ip_data;
+# DROP TABLE IF EXISTS ip_history;
 # " | psql -U postgres
 # }
 initdb(){
     echo "SELECT 'CREATE DATABASE ${DB}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${DB}')\gexec" | psql -U postgres -d postgres
     template="""
-CREATE TABLE IF NOT EXISTS nmap_scan(
-    timestamp TIMESTAMP DEFAULT NOW(),
-    ip        INET NOT NULL,
-    host      VARCHAR(256),
-    pstatus   VARCHAR(24),
-    proto     VARCHAR(8),
-    port      INTEGER,
-    service   VARCHAR(32),
-    finger    VARCHAR(32)
-);
-CREATE TABLE IF NOT EXISTS dns_a_wildcard(
-    base      VARCHAR(256) NOT NULL,
-    root      VARCHAR(256) NOT NULL,
-    timestamp TIMESTAMP DEFAULT NOW(),
-    ip        INET);
-CREATE TABLE IF NOT EXISTS tld_records(
-    name      VARCHAR(256) NOT NULL,
-    root      VARCHAR(256) NOT NULL,
-    timestamp TIMESTAMP    DEFAULT NOW(),
-    qtype     VARCHAR(16)  NOT NULL,
-    rtype     VARCHAR(16),
-    rcode     VARCHAR(16)  NOT NULL,
-    data      VARCHAR(512),
-    ip        INET);
-CREATE TABLE IF NOT EXISTS dns_other(
-    timestamp TIMESTAMP    DEFAULT NOW(),
-    name      VARCHAR(256) NOT NULL,
-    qtype     VARCHAR(16)  NOT NULL,
-    rtype     VARCHAR(16),
-    rcode     VARCHAR(16)  NOT NULL,
-    data      VARCHAR(512),
-    ip        INET);
-CREATE TABLE IF NOT EXISTS dns_record(
-    name      VARCHAR(256) NOT NULL,
-    root      VARCHAR(256) NOT NULL,
-    sub       VARCHAR(256) NOT NULL,
-    timestamp TIMESTAMP    DEFAULT NOW(),
-    qtype     VARCHAR(16)  NOT NULL,
-    rtype     VARCHAR(16),
-    rcode     VARCHAR(16)  NOT NULL,
-    data      VARCHAR(512),
-    ip        INET);
-CREATE INDEX IF NOT EXISTS root_index ON dns_record(root);
-CREATE TABLE IF NOT EXISTS ip_ptr (
-    timestamp TIMESTAMP   DEFAULT NOW(),
-    ip        INET        NOT NULL,
-    rcode     VARCHAR(16) NOT NULL,
-    ptr       VARCHAR(256)
-);
-CREATE TABLE IF NOT EXISTS ip_reverse (
-    ip        INET         NOT NULL PRIMARY KEY,
-    reverse   VARCHAR(256) NOT NULL
-);
-CREATE TABLE IF NOT EXISTS ${IP_DATA}(
-    timestamp TIMESTAMP DEFAULT NOW(),
-    ip        INET NOT NULL,
-    cidr      CIDR,
-    asn       VARCHAR(256));
-CREATE TABLE IF NOT EXISTS ${IP_HISTORY}(
-    timestamp TIMESTAMP DEFAULT NOW(),
-    ip        INET NOT NULL,
-    is_up     BOOLEAN);
-------------------------------
----
-CREATE OR REPLACE VIEW recent_tld_records AS
-  SELECT current.*
-  FROM (SELECT name,qtype,MAX(timestamp) AS maximun FROM tld_records GROUP BY name,qtype) recent
-  JOIN tld_records current
-  ON current.timestamp=recent.maximun AND current.name=recent.name AND current.qtype=recent.qtype;
-
--- dns_record but latest results
-CREATE OR REPLACE VIEW recent_dns_record AS
-  SELECT current.*
-  FROM (SELECT name,qtype,MAX(timestamp) AS maximun FROM dns_record GROUP BY name,qtype) recent
-  JOIN dns_record current
-  ON current.timestamp=recent.maximun AND current.name=recent.name AND current.qtype=recent.qtype;
-
--- dns_other but latest results
-CREATE OR REPLACE VIEW recent_dns_other AS
-  SELECT current.*
-  FROM (SELECT name,qtype,MAX(timestamp) AS maximun FROM dns_other GROUP BY name,qtype) recent
-  JOIN dns_other current
-  ON current.timestamp=recent.maximun AND current.name=recent.name AND current.qtype=recent.qtype;
-
--- IPs currently UP
-CREATE OR REPLACE VIEW newip_history AS
-  SELECT recent.maximo AS timestamp, recent.ip, current.is_up
-  FROM (SELECT ip,MAX(timestamp) maximo FROM ip_history GROUP BY ip) recent
-  JOIN ip_history current
-  ON (recent.ip=current.ip AND current.timestamp=recent.maximo);
-
-CREATE OR REPLACE VIEW list_upips AS
-  SELECT DISTINCT ON (current.ip) current.ip
-   FROM ( SELECT ip_history.ip,
-            max(ip_history.timestamp) AS maximus
-           FROM ip_history
-          GROUP BY ip_history.ip) recent,
-    ip_history current
-  WHERE current.ip = recent.ip AND current.timestamp = recent.maximus AND current.is_up IS TRUE;
-
-CREATE OR REPLACE VIEW list_upips_local AS
-  SELECT d.ip
-   FROM list_upips i
-     JOIN ip_data d ON i.ip = d.ip AND (d.asn IS NULL OR d.asn::text <> 'LOCAL'::text);
 ------------------------------
 DROP PROCEDURE IF EXISTS insert_ip_reverse;
 CREATE PROCEDURE insert_ip_reverse(newip     INET,
@@ -184,17 +80,17 @@ CREATE PROCEDURE insert_ip_data(newip   INET,
                                 newasn  VARCHAR)
 LANGUAGE SQL
 AS \$$
-INSERT INTO ${IP_DATA}(ip, cidr, asn)
+INSERT INTO ip_data(ip, cidr, asn)
 SELECT newip, newcidr, newasn
 WHERE NOT EXISTS (
     SELECT 1
     FROM (
         SELECT ip, max(timestamp) as maxtime
-        FROM ${IP_DATA}
+        FROM ip_data
         WHERE ip=newip
         GROUP BY ip
     ) recent,
-    ${IP_DATA} original
+    ip_data original
     WHERE original.ip=recent.ip
       AND recent.maxtime=original.timestamp
       AND ( ( original.cidr=newcidr AND original.asn=newasn) OR
@@ -375,27 +271,27 @@ DROP PROCEDURE IF EXISTS insert_ip;
 CREATE PROCEDURE insert_ip(newip INET)
 LANGUAGE SQL
 AS \$$
-INSERT INTO ${IP_HISTORY}(ip)
+INSERT INTO ip_history(ip)
 SELECT newip
 WHERE NOT EXISTS (
     SELECT 1
-    FROM ${IP_HISTORY}
+    FROM ip_history
     WHERE ip=newip);
 \$$;
 CREATE PROCEDURE insert_ip(newip INET, state BOOLEAN)
 LANGUAGE SQL
 AS \$$
-INSERT INTO ${IP_HISTORY}(ip,is_up)
+INSERT INTO ip_history(ip,is_up)
 SELECT newip, state
 WHERE NOT EXISTS (
     SELECT 1
     FROM (
         SELECT ip, max(timestamp) as maxtime
-        FROM ${IP_HISTORY}
+        FROM ip_history
         WHERE ip=newip
         GROUP BY ip
     ) recent,
-    ${IP_HISTORY} original
+    ip_history original
     WHERE original.ip=recent.ip
     AND recent.maxtime=original.timestamp
     AND original.is_up=state);
@@ -403,11 +299,11 @@ WHERE NOT EXISTS (
 CREATE PROCEDURE insert_ip(newip INET, state BOOLEAN, newtime TIMESTAMP WITH TIME ZONE)
 LANGUAGE SQL
 AS \$$
-INSERT INTO ${IP_HISTORY}(ip,is_up,timestamp)
+INSERT INTO ip_history(ip,is_up,timestamp)
 SELECT newip, state, newtime
 WHERE NOT EXISTS (
     SELECT 1
-    FROM ${IP_HISTORY}
+    FROM ip_history
     WHERE ip=newip
       AND timestamp=newtime
       AND is_up=state);
@@ -417,17 +313,17 @@ DROP PROCEDURE IF EXISTS insert_upip;
 CREATE PROCEDURE insert_upip(newip INET)
 LANGUAGE SQL
 AS \$$
-INSERT INTO ${IP_HISTORY}(ip,is_up)
+INSERT INTO ip_history(ip,is_up)
 SELECT newip, true
 WHERE NOT EXISTS (
     SELECT 1
     FROM (
         SELECT ip, max(timestamp) as maxtime
-        FROM ${IP_HISTORY}
+        FROM ip_history
         WHERE ip=newip
         GROUP BY ip
     ) recent,
-    ${IP_HISTORY} original
+    ip_history original
     WHERE original.ip=recent.ip
     AND recent.maxtime=original.timestamp
     AND original.is_up=true);
@@ -436,17 +332,17 @@ DROP PROCEDURE IF EXISTS insert_downip;
 CREATE PROCEDURE insert_downip(newip INET)
 LANGUAGE SQL
 AS \$$
-INSERT INTO ${IP_HISTORY}(ip,is_up)
+INSERT INTO ip_history(ip,is_up)
 SELECT newip, false
 WHERE NOT EXISTS (
     SELECT 1
     FROM (
         SELECT ip, max(timestamp) as maxtime
-        FROM ${IP_HISTORY}
+        FROM ip_history
         WHERE ip=newip
         GROUP BY ip
     ) recent,
-    ${IP_HISTORY} original
+    ip_history original
     WHERE original.ip=recent.ip
     AND recent.maxtime=original.timestamp
     AND original.is_up=false);
@@ -533,12 +429,12 @@ add_ips_down() {
 get_ips_up(){
     local root="${1}"
     echo "SELECT recent.ip FROM (
-  SELECT ${IP_HISTORY}.ip, max(${IP_HISTORY}.timestamp) as mtime
-  FROM ${IP_HISTORY}
-  INNER JOIN dns_record ON (${IP_HISTORY}.ip=dns_record.ip)
+  SELECT ip_history.ip, max(ip_history.timestamp) as mtime
+  FROM ip_history
+  INNER JOIN dns_record ON (ip_history.ip=dns_record.ip)
   WHERE dns_record.root='${root}'
-  GROUP BY ${IP_HISTORY}.ip) recent,
-  ${IP_HISTORY} original
+  GROUP BY ip_history.ip) recent,
+  ip_history original
 WHERE original.timestamp=recent.mtime
   AND original.ip=recent.ip
   AND original.is_up=true;
@@ -547,12 +443,12 @@ WHERE original.timestamp=recent.mtime
 get_ips_down(){
     local root="${1}"
     echo "SELECT recent.ip FROM (
-  SELECT ${IP_HISTORY}.ip, max(${IP_HISTORY}.timestamp) as mtime
-  FROM ${IP_HISTORY}
-  INNER JOIN dns_record ON (${IP_HISTORY}.ip=dns_record.ip)
+  SELECT ip_history.ip, max(ip_history.timestamp) as mtime
+  FROM ip_history
+  INNER JOIN dns_record ON (ip_history.ip=dns_record.ip)
   WHERE dns_record.root='${root}'
-  GROUP BY ${IP_HISTORY}.ip) recent,
-  ${IP_HISTORY} original
+  GROUP BY ip_history.ip) recent,
+  ip_history original
 WHERE original.timestamp=recent.mtime
   AND original.ip=recent.ip
   AND original.is_up=false;
@@ -562,13 +458,13 @@ get_ips_unknown(){
     local root="${1}"
     echo "SELECT recent.ip
           FROM
-          ( SELECT ${IP_HISTORY}.ip,
-                   MAX(${IP_HISTORY}.timestamp) AS mtime
-            FROM ${IP_HISTORY}
-            JOIN dns_record ON (${IP_HISTORY}.ip=dns_record.ip)
+          ( SELECT ip_history.ip,
+                   MAX(ip_history.timestamp) AS mtime
+            FROM ip_history
+            JOIN dns_record ON (ip_history.ip=dns_record.ip)
             WHERE dns_record.root='${root}'
-            GROUP BY ${IP_HISTORY}.ip) recent,
-          ${IP_HISTORY} original
+            GROUP BY ip_history.ip) recent,
+          ip_history original
           WHERE original.timestamp=recent.mtime
             AND original.ip=recent.ip
             AND original.is_up IS NULL;" | praw
@@ -777,7 +673,7 @@ get_ip_nodata(){
     local root="${1}"
     echo "SELECT d.ip
     FROM dns_record d
-    LEFT JOIN ${IP_DATA} i
+    LEFT JOIN ip_data i
     ON d.ip=i.ip AND ( i.cidr IS NULL OR i.asn IS NULL)
     WHERE root='${root}'
     AND d.qtype=d.rtype
