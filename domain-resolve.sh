@@ -117,6 +117,6 @@ if [[ ${#domains[@]} -gt 0 ]]; then
 			>(massdns MX 10) \
 			>(massdns TXT 10) >/dev/null
 fi
-# TODO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
+# TOnDO: DNAME, SPF, DMARC, CNAME, ALIAS (i mean if it has it but also has other things)
 
 wait && echo "${0##*/} is DONE!"

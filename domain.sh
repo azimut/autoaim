@@ -18,9 +18,7 @@ set -exu
 DOMAIN=${1:-${PWD##*/}}
 
 FOLDER=domains
-mkdir -p ${FOLDER}/amass
-mkdir -p ${FOLDER}/nmap
-mkdir -p ${FOLDER}/oneforall
+mkdir -p ${FOLDER}/{amass,nmap,oneforall}
 
 . ${HOME}/projects/sec/autoaim/helpers.sh
 
@@ -39,7 +37,6 @@ whoisxml() {
 # address      - with NS
 # connectivity - with NS
 zonemaster() {
-	# elapsed, noprogress
 	zonemaster-cli --test address \
 		--test connectivity \
 		--test consistency \
@@ -56,7 +53,7 @@ nmap_domain() {
 	local domain=${1}
 	file=${FOLDER}/nmap/domain_${domain}
 	if [[ ! -f ${file}.gnmap ]]; then
-		sudo $NMAP -sn -n -v -Pn \
+		sudo nmap -sn -n -v -Pn \
 			--reason \
 			--dns-servers 1.1.1.1 \
 			--script "dns-check-zone,dns-srv-enum" \
@@ -83,12 +80,7 @@ amass_whois() {
 	local domain=${1}
 	file=${FOLDER}/amass/whois_${domain}
 	if [[ ! -f ${file} ]]; then
-		$AMASS intel \
-			-config ${AMASS%/*}/config.ini \
-			-d "${domain}" \
-			-v \
-			-whois -src \
-			-o ${file}
+		amass intel -config ${AUTOAIM}/conf/config.ini -d "${domain}" -v -whois -src -o ${file}
 	fi
 }
 
@@ -97,12 +89,7 @@ amass_passive() {
 	local domain=${1}
 	file=${FOLDER}/amass/passive_${domain}
 	if [[ ! -f ${file}.txt ]]; then
-		$AMASS enum \
-			-config ${AMASS%/*}/config.ini \
-			-d "${domain}" \
-			-v \
-			-passive -src \
-			-oA ${file}
+		amass enum -config ${AUTOAIM}/conf/config.ini -d "${domain}" -v -passive -src -oA ${file}
 	fi
 }
 
@@ -145,9 +132,9 @@ oneforall() {
 
 #amass_download
 
-whoisxml "${DOMAIN}"      # whois
-nmap_domain "${DOMAIN}"   # srv, nsec # SUBDOMAINs
-oneforall "${DOMAIN}"     # passive   # SUBDOMAINS
+whoisxml "${DOMAIN}"    # whois
+nmap_domain "${DOMAIN}" # srv, nsec # SUBDOMAINs
+# oneforall "${DOMAIN}"     # passive   # SUBDOMAINS
 amass_passive "${DOMAIN}" # passive   # SUBDOMAINs
 amass_whois "${DOMAIN}"   # whois     # DOMAINs
 

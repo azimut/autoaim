@@ -23,6 +23,7 @@ bingip2host(){
 }
 
 # TODO: use a domain name in the scan and group them
+# --max-retries=0
 nmap_tcp_fast(){
     local ip=${1}
     local file=../ips/${ip}/tcp
@@ -33,7 +34,6 @@ nmap_tcp_fast(){
              -sTV \
              -vv \
              -oA ${file} \
-             --max-retries=0 \
              --script-args="http.useragent='${UA}'" \
              --reason \
              -n \
@@ -57,10 +57,10 @@ nmap_tcp_full(){
         rm -f ../ips/${ip}/dofull
         sudo $NMAP \
              -sT \
+             -O \
              -vv \
              -oA ${file} \
              -T2 \
-             --max-retries=0 \
              --reason \
              -n \
              -p- \
