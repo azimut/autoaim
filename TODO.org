@@ -1,0 +1,9 @@
+* mx.sh
+- needs a way to get A and AAAA addresses of MX records
+  - one problem is that I think I need the domain in order to the nmap scripts to work
+  - unless there is a way to pass the domain name to the script
+- otherwise a way to get MX domains
+  - that have ipv4
+  - that have ipv6
+- a way to expire the scanning that is NOT the old file?
+  - a file might be enough if git saved
