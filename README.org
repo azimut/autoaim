@@ -17,8 +17,6 @@ ping scan ips found and get basic informations from them, like if they belong to
 nmap TCP, UDP and TCPFULL just to discover open ports
 
 ** resolvers
-*** cleanupresolvers.sh
-Intented for use to cleanup the massdns resolvers, just ping and dig.
 *** resolvers.txt, raw_resolvers.txt
 cleanup resolvers version of IPs from massdns based on cleanupresolvers.sh
 
