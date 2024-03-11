@@ -2,6 +2,25 @@
 
 *Personal use*, paths assumed to exist.
 
+** dependencies
+
+- postgresql
+- [[https://github.com/azimut/sunny][sunny]] cli util to gather metadata of an ip
+- [[https://github.com/azimut/hacks][hacks]] cli utils to handle structured data (nmap xml, ip address ranges, etc)
+- nmap
+- amass
+- nikto
+- massdns
+- subjack
+- aquatone
+- hakwarwler
+- SubDomanizer
+- uriinteresting
+- unfurl
+- zonemaster
+- oneforall
+- trusttrees
+
 ** discover
 *** domain.sh
 get subdomains from domain
