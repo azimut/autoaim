@@ -12,11 +12,7 @@ BLACKLISTED_MX_DOMAINS='(mailgun.org|google.com|googlemail.com)'
 
 nmap_scripts() {
 	local protocols=(ssh ssl smtp pop3 tls imap)
-	local output=""
-	for protocol in "${protocols[@]}"; do
-		output+=" or (*${protocol}* and (discovery or safe or auth))"
-	done
-	echo "${output}"
+	printf 'or (*%s* and (discovery r safe or auth)) ' "${protocols[@]}"
 }
 
 # BUG: nmap needs separate executions for ipv4/ipv6
